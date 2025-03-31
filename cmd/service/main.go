@@ -41,8 +41,11 @@ func run() error {
 		return fmt.Errorf("marshalling tx: %w", err)
 	}
 
+	//to indicate that this transaction is meant for Chaingo blockchain.
+	stamp := fmt.Appendf(nil, "\x19Chaingo Signed Message:\n%d", len(bs))
+
 	//digest it to 32 bytes
-	digest := crypto.Keccak256(bs)
+	digest := crypto.Keccak256(stamp, bs)
 
 	//sign
 	signature, err := crypto.Sign(digest, private)
