@@ -9,6 +9,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/hamidoujand/chaingo/database"
 )
 
 type Tx struct {
@@ -78,6 +79,28 @@ func run() error {
 	fmt.Printf("r:%d\n", r)
 	fmt.Printf("s:%d\n", s)
 
+	fmt.Println("==============================TX===============================")
+
+	hamidTX, err := database.NewTX(
+		1,
+		1,
+		"0xB7098929d914880eF9A18026F2290A9F23390D42",
+		"0xB7098929d914880eF9A18026F2290A9F23390D42",
+		1000,
+		0,
+		nil,
+	)
+
+	if err != nil {
+		return fmt.Errorf("newTX: %w", err)
+	}
+
+	signedTX, err := hamidTX.Sign(private)
+	if err != nil {
+		return fmt.Errorf("signTX: %w", err)
+	}
+
+	fmt.Printf("%+v\n", signedTX)
 	return nil
 }
 

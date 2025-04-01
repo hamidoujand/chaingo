@@ -1,6 +1,13 @@
 package database
 
-import "fmt"
+import (
+	"fmt"
+	"math/big"
+
+	"crypto/ecdsa"
+
+	"github.com/hamidoujand/chaingo/signature"
+)
 
 // AccountID represents the last 20 bytes of the public key.
 type AccountID string
@@ -19,6 +26,7 @@ func (id AccountID) IsValid() bool {
 		id = id[2:] //remove the prefix then.
 	}
 
+	//1 byte = 2 hex char
 	return len(id) == 2*addressLength && isHex(id)
 }
 
@@ -46,6 +54,7 @@ func isHexCharacter(c byte) bool {
 
 //==============================================================================
 
+// TX represents an unsigned transaction.
 type TX struct {
 	ChainID uint16    `json:"chain_id"` //Prevents replay attacks across different blockchains.
 	Nonce   uint64    `json:"nonce"`    //Acts as a unique counter for transactions from the same account and ensures transaction ordering.
@@ -54,4 +63,45 @@ type TX struct {
 	Value   uint64    `json:"value"`    //The amount of cryptocurrency being sent.
 	Tip     uint64    `json:"tip"`      //A priority fee (tip) to incentivize miners to include this transaction faster.
 	Data    []byte    `json:"data"`     //Stores arbitrary data.
+}
+
+func NewTX(chainID uint16, nonce uint64, from AccountID, to AccountID, value uint64, tip uint64, data []byte) (TX, error) {
+	tx := TX{
+		ChainID: chainID,
+		Nonce:   nonce,
+		FromID:  from,
+		ToID:    to,
+		Value:   value,
+		Tip:     tip,
+		Data:    data,
+	}
+
+	return tx, nil
+}
+
+func (tx TX) Sign(privateKey *ecdsa.PrivateKey) (SignedTX, error) {
+	v, r, s, err := signature.Sign(tx, privateKey)
+	if err != nil {
+		return SignedTX{}, fmt.Errorf("signing tx: %w", err)
+	}
+
+	stx := SignedTX{
+		TX: tx,
+		V:  v,
+		R:  r,
+		S:  s,
+	}
+
+	return stx, nil
+}
+
+//==============================================================================
+// Signed Transaction
+
+// SignedTX represents a digitally signed transaction in the blockchain.
+type SignedTX struct {
+	TX
+	V *big.Int `json:"v"`  //Recovery identifier, either 29 or 30 with chaingo.
+	R *big.Int `json:"r"`  //First part of the ECDSA signature (random point on the elliptic curve).
+	S *big.Int `json:"s" ` //Second part of the ECDSA signature (proof of signing authority).
 }
