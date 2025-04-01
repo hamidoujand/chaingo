@@ -105,3 +105,31 @@ type SignedTX struct {
 	R *big.Int `json:"r"`  //First part of the ECDSA signature (random point on the elliptic curve).
 	S *big.Int `json:"s" ` //Second part of the ECDSA signature (proof of signing authority).
 }
+
+// Validate verifies that received transaction over the wire has proper signature.
+func (stx SignedTX) Validate(chainID uint16) error {
+	//check if the TX meant for this blockchain.
+	if stx.ChainID != chainID {
+		return fmt.Errorf("invalid chainID: %d", stx.ChainID)
+	}
+
+	//accountIDs
+	if !stx.FromID.IsValid() {
+		return fmt.Errorf("fromID is not in proper format")
+	}
+
+	if !stx.ToID.IsValid() {
+		return fmt.Errorf("toID is not in proper format")
+	}
+
+	if stx.FromID == stx.ToID {
+		return fmt.Errorf("invalid transaction, sending money to yourself, from %s to %s", stx.FromID, stx.ToID)
+	}
+
+	//validate the signature from structure point of view
+	if err := signature.VerifySignature(stx.V, stx.R, stx.S); err != nil {
+		return fmt.Errorf("verifySignature: %w", err)
+	}
+
+	return nil
+}

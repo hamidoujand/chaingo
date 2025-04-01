@@ -3,6 +3,7 @@ package signature
 import (
 	ecd "crypto/ecdsa"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -46,4 +47,24 @@ func toSignatureRSV(sig []byte) (v, r, s *big.Int) {
 	v = big.NewInt(result)
 
 	return v, r, s
+}
+
+func VerifySignature(v, r, s *big.Int) error {
+	recoverID := v.Uint64() - chaingoID*2 - 35
+
+	//check the V value to be either 0 or 1.
+	if recoverID != 0 && recoverID != 1 {
+		return errors.New("invalid recovery id")
+	}
+
+	// validates the structure of the signature.
+	if !crypto.ValidateSignatureValues(byte(recoverID), r, s, false) {
+		return errors.New("invalid signature values")
+	}
+	return nil
+}
+
+// TODO: finish it
+func ExtractAddress(tx any, v, r, s *big.Int) (string, error) {
+	return "", nil
 }
