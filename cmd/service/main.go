@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"os"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -67,5 +69,27 @@ func run() error {
 	addr := crypto.PubkeyToAddress(*publicKey).String()
 	fmt.Printf("\n======================Address===============\n%s\n", addr)
 
+	v, r, s, err := toVRSFromHEX(hexed)
+	if err != nil {
+		return fmt.Errorf("toVRS: %w", err)
+	}
+
+	fmt.Printf("v:%d\n", v)
+	fmt.Printf("r:%d\n", r)
+	fmt.Printf("s:%d\n", s)
+
 	return nil
+}
+
+func toVRSFromHEX(signature string) (v, r, s *big.Int, err error) {
+	sig, err := hex.DecodeString(signature[2:]) // skip 0x
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	r = big.NewInt(0).SetBytes(sig[:32])
+	s = big.NewInt(0).SetBytes(sig[32:64])
+	v = big.NewInt(0).SetBytes([]byte{sig[64]})
+
+	return v, r, s, nil
 }
