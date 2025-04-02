@@ -1,6 +1,7 @@
 package database
 
 import (
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -131,5 +132,22 @@ func (stx SignedTX) Validate(chainID uint16) error {
 		return fmt.Errorf("verifySignature: %w", err)
 	}
 
+	addr, err := signature.ExtractAddress(stx.TX, stx.V, stx.R, stx.S)
+	if err != nil {
+		return fmt.Errorf("extractAddress: %w", err)
+	}
+
+	if addr != string(stx.FromID) {
+		return errors.New("signature address does not match the FromID address")
+	}
+
 	return nil
+}
+
+func (stx SignedTX) SignatureString() string {
+	return signature.SignatureString(stx.V, stx.R, stx.S)
+}
+
+func (stx SignedTX) String() string {
+	return fmt.Sprintf("%s:%d", stx.FromID, stx.Nonce)
 }

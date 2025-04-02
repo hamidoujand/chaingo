@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
@@ -64,7 +65,57 @@ func VerifySignature(v, r, s *big.Int) error {
 	return nil
 }
 
-// TODO: finish it
 func ExtractAddress(tx any, v, r, s *big.Int) (string, error) {
-	return "", nil
+	//marshal it
+	bs, err := json.Marshal(tx)
+	if err != nil {
+		return "", fmt.Errorf("marshalling tx: %w", err)
+	}
+
+	//stamp
+	stamp := fmt.Appendf(nil, "\x19Chaingo Signed Message:\n%d", len(bs))
+
+	//digest hash
+	digest := crypto.Keccak256(stamp, bs)
+
+	//convert RSV to 65 bytes format
+	sig := toSignatureBytes(v, r, s)
+
+	//extract the public key
+	publicKey, err := crypto.SigToPub(digest, sig)
+	if err != nil {
+		return "", fmt.Errorf("sigToPub: %w", err)
+	}
+
+	return crypto.PubkeyToAddress(*publicKey).String(), nil
+}
+
+// SignatureString returns the signature as string.
+func SignatureString(v, r, s *big.Int) string {
+	//without chaingoID
+	sig := toSignatureBytes(v, r, s)
+
+	//with chaingoID
+	sig[64] = byte(v.Uint64())
+
+	return hexutil.Encode(sig)
+}
+
+func toSignatureBytes(v, r, s *big.Int) []byte {
+	sig := make([]byte, crypto.SignatureLength)
+
+	//R
+	rBytes := make([]byte, 32)
+	r.FillBytes(rBytes)
+	copy(sig, rBytes)
+
+	//S
+	sBytes := make([]byte, 32)
+	s.FillBytes(sBytes)
+	copy(sig, sBytes)
+
+	recoverID := v.Uint64() - chaingoID*2 - 35
+	sig[64] = byte(recoverID)
+
+	return sig
 }
