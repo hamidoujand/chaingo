@@ -4,10 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"sync"
 	"time"
 
 	"crypto/ecdsa"
 
+	"github.com/hamidoujand/chaingo/genesis"
 	"github.com/hamidoujand/chaingo/signature"
 )
 
@@ -169,4 +171,69 @@ func NewBlockTX(signedTx SignedTX, gasPrice uint64, uintOfGas uint64) BlockTX {
 		GasPrice:  gasPrice,
 		GasUnits:  uintOfGas,
 	}
+}
+
+//==============================================================================
+// Account
+
+// Account represents all information stored in database for an individual account.
+type Account struct {
+	AccountID AccountID
+	Nonce     uint64 //represents the TX number.
+	Balance   uint64
+}
+
+func newAccount(accountID AccountID, Balance uint64) Account {
+	return Account{
+		AccountID: accountID,
+		Balance:   Balance,
+	}
+}
+
+//==============================================================================
+// Database
+
+// Database manages all the accounts who transacted on the blockchain.
+// since we store all blocks on disk, we can read them and rebuild our database every time.
+type Database struct {
+	mu       sync.RWMutex
+	genesis  genesis.Genesis
+	accounts map[AccountID]Account
+}
+
+// New creates a new database and applies the genesis.
+func New(genesis genesis.Genesis) (*Database, error) {
+	db := Database{
+		genesis:  genesis,
+		accounts: make(map[AccountID]Account),
+	}
+
+	for accountSTR, balance := range genesis.Balances {
+		accountID, err := NewAccountID(accountSTR)
+		if err != nil {
+			return nil, fmt.Errorf("invalid accountID: %w", err)
+		}
+
+		db.accounts[accountID] = newAccount(accountID, balance)
+	}
+
+	return &db, nil
+}
+
+func (db *Database) Remove(accountID AccountID) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	delete(db.accounts, accountID)
+}
+
+func (db *Database) Query(accountID AccountID) (Account, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	account, ok := db.accounts[accountID]
+	if !ok {
+		return Account{}, fmt.Errorf("account with ID %s not found", accountID)
+	}
+
+	return account, nil
 }
