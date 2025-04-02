@@ -38,18 +38,6 @@ func Sign(tx any, privateKey *ecd.PrivateKey) (v, r, s *big.Int, err error) {
 	return v, r, s, nil
 }
 
-func toSignatureRSV(sig []byte) (v, r, s *big.Int) {
-	r = big.NewInt(0).SetBytes(sig[:32])
-	s = big.NewInt(0).SetBytes(sig[32:64])
-
-	//EIP-155-style V
-	recoverID := int(sig[64]) // 0 OR 1
-	result := int64(chaingoID*2 + recoverID + 35)
-	v = big.NewInt(result)
-
-	return v, r, s
-}
-
 func VerifySignature(v, r, s *big.Int) error {
 	recoverID := v.Uint64() - chaingoID*2 - 35
 
@@ -118,4 +106,16 @@ func toSignatureBytes(v, r, s *big.Int) []byte {
 	sig[64] = byte(recoverID)
 
 	return sig
+}
+
+func toSignatureRSV(sig []byte) (v, r, s *big.Int) {
+	r = big.NewInt(0).SetBytes(sig[:32])
+	s = big.NewInt(0).SetBytes(sig[32:64])
+
+	//EIP-155-style V
+	recoverID := int(sig[64]) // 0 OR 1
+	result := int64(chaingoID*2 + recoverID + 35)
+	v = big.NewInt(result)
+
+	return v, r, s
 }

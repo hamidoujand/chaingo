@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"time"
 
 	"crypto/ecdsa"
 
@@ -150,4 +151,22 @@ func (stx SignedTX) SignatureString() string {
 
 func (stx SignedTX) String() string {
 	return fmt.Sprintf("%s:%d", stx.FromID, stx.Nonce)
+}
+
+// BlockTX represents a TX inside of the block.
+type BlockTX struct {
+	SignedTX
+	Timestamp uint64 `json:"timestamp"` //time that the transaction was received.
+	GasPrice  uint64 `json:"gas_price"` //price for single unite of gas.
+	GasUnits  uint64 `json:"gas_units"` //number of units of gas used for this transaction.
+}
+
+// NewBlockTX constructs a new block transaction.
+func NewBlockTX(signedTx SignedTX, gasPrice uint64, uintOfGas uint64) BlockTX {
+	return BlockTX{
+		SignedTX:  signedTx,
+		Timestamp: uint64(time.Now().UTC().UnixMilli()),
+		GasPrice:  gasPrice,
+		GasUnits:  uintOfGas,
+	}
 }
