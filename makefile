@@ -1,5 +1,6 @@
 # Wallets
 # Hamid: 0xB7098929d914880eF9A18026F2290A9F23390D42
+# John : 0xdF25785c81cf53f334fd05541Aa16bE8162CA8a9
 
 
 
@@ -9,7 +10,7 @@ tidy:
 
 
 generate-key:
-	go run cmd/admin/main.go genkey -dir=zblock -account=hamid
+	go run cmd/admin/main.go genkey -dir=block -account=john
 
-scratch: 
-	go run cmd/service/main.go
+run: 
+	CHAINGO_BENEFICIARY=hamid go run cmd/service/main.go

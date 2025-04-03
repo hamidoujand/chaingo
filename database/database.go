@@ -9,9 +9,13 @@ import (
 
 	"crypto/ecdsa"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/hamidoujand/chaingo/genesis"
 	"github.com/hamidoujand/chaingo/signature"
 )
+
+//==============================================================================
+// Account
 
 // AccountID represents the last 20 bytes of the public key.
 type AccountID string
@@ -22,6 +26,10 @@ func NewAccountID(hex string) (AccountID, error) {
 		return "", fmt.Errorf("invalid accountID format")
 	}
 	return a, nil
+}
+
+func PublicToAccountID(pub ecdsa.PublicKey) AccountID {
+	return AccountID(crypto.PubkeyToAddress(pub).String())
 }
 
 func (id AccountID) IsValid() bool {
@@ -215,6 +223,7 @@ func New(genesis genesis.Genesis) (*Database, error) {
 		}
 
 		db.accounts[accountID] = newAccount(accountID, balance)
+		fmt.Printf("Account %s, Balance %d\n", accountID, balance)
 	}
 
 	return &db, nil
