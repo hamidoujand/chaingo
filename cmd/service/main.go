@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/hamidoujand/chaingo/database"
 	"github.com/hamidoujand/chaingo/genesis"
+	"github.com/hamidoujand/chaingo/selector"
 	"github.com/hamidoujand/chaingo/state"
 )
 
@@ -27,6 +28,11 @@ func run() error {
 		return errors.New("missing env CHAINGO_BENEFICIARY")
 	}
 
+	strategy := os.Getenv("CHAINGO_SELECTOR_STRATEGY")
+	if strategy == "" {
+		strategy = selector.StrategyTip
+	}
+
 	//load the beneficiary's private key .
 	path := fmt.Sprintf("block/%s.ecdsa", beneficiary)
 	privateKey, err := crypto.LoadECDSA(path)
@@ -42,6 +48,7 @@ func run() error {
 	state, err := state.New(state.Config{
 		BeneficiaryID: database.PublicToAccountID(privateKey.PublicKey),
 		Genesis:       genesis,
+		Strategy:      strategy,
 	})
 	fmt.Printf("%+v\n", state)
 	return nil

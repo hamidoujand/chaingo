@@ -9,6 +9,8 @@ import (
 
 	"crypto/ecdsa"
 
+	"maps"
+
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/hamidoujand/chaingo/genesis"
 	"github.com/hamidoujand/chaingo/signature"
@@ -245,4 +247,14 @@ func (db *Database) Query(accountID AccountID) (Account, error) {
 	}
 
 	return account, nil
+}
+
+func (db *Database) Copy() map[AccountID]Account {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	cp := make(map[AccountID]Account, len(db.accounts))
+
+	maps.Copy(cp, db.accounts)
+
+	return cp
 }
