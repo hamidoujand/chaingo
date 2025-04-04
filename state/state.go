@@ -59,3 +59,7 @@ func (s *State) UpsertMempool(tx database.BlockTX) error {
 func (s *State) Accounts() map[database.AccountID]database.Account {
 	return s.db.Copy()
 }
+
+func (s *State) Genesis() genesis.Genesis {
+	return s.genesis
+}

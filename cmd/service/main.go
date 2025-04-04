@@ -1,13 +1,20 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/hamidoujand/chaingo/database"
 	"github.com/hamidoujand/chaingo/genesis"
+	"github.com/hamidoujand/chaingo/handlers"
 	"github.com/hamidoujand/chaingo/selector"
 	"github.com/hamidoujand/chaingo/state"
 )
@@ -20,9 +27,9 @@ func main() {
 }
 
 func run() error {
-
 	//==========================================================================
-	// Blockchain
+	// Environment
+
 	beneficiary := os.Getenv("CHAINGO_BENEFICIARY")
 	if beneficiary == "" {
 		return errors.New("missing env CHAINGO_BENEFICIARY")
@@ -32,6 +39,14 @@ func run() error {
 	if strategy == "" {
 		strategy = selector.StrategyTip
 	}
+
+	publicHost := os.Getenv("CHAINGO_PUBLIC_HOST")
+	if publicHost == "" {
+		publicHost = "0.0.0.0:8000"
+	}
+
+	//==========================================================================
+	// Blockchain
 
 	//load the beneficiary's private key .
 	path := fmt.Sprintf("block/%s.ecdsa", beneficiary)
@@ -50,6 +65,53 @@ func run() error {
 		Genesis:       genesis,
 		Strategy:      strategy,
 	})
-	fmt.Printf("%+v\n", state)
+
+	if err != nil {
+		return fmt.Errorf("new state: %w", err)
+	}
+
+	//==========================================================================
+	// Mux
+
+	mux := handlers.PublicMux(handlers.MuxConfig{
+		State: state,
+	})
+
+	//==========================================================================
+	// Server
+
+	shutdown := make(chan os.Signal, 1)
+	signal.Notify(shutdown, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+
+	serverErrs := make(chan error, 1)
+
+	publicServer := &http.Server{
+		Addr:        publicHost,
+		Handler:     http.TimeoutHandler(mux, time.Second*30, "timed out"),
+		ReadTimeout: time.Second * 10, //TODO: needs load testing.
+		IdleTimeout: time.Second * 60, //TODO: needs load testing.
+	}
+
+	go func() {
+		log.Printf("public server starting at: %s", publicHost)
+		if err := publicServer.ListenAndServe(); err != nil {
+			serverErrs <- fmt.Errorf("listenAndServe: %w", err)
+		}
+	}()
+
+	select {
+	case err := <-serverErrs:
+		return err
+	case sig := <-shutdown:
+		log.Printf("received signal %q, shutting down", sig)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
+		defer cancel()
+
+		if err := publicServer.Shutdown(ctx); err != nil {
+			_ = publicServer.Close()
+			return fmt.Errorf("shutdown: %w", err)
+		}
+	}
+
 	return nil
 }
