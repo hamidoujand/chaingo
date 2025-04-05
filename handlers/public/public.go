@@ -4,6 +4,7 @@ package public
 import (
 	"encoding/json"
 	"fmt"
+
 	"net/http"
 
 	"github.com/hamidoujand/chaingo/database"
@@ -88,6 +89,29 @@ func (h *Handlers) Mempool(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) SubmitTX(w http.ResponseWriter, r *http.Request) {
 
+	//expect to get a signed transaction inside of request body.
+	var signedTX database.SignedTX
+	decoder := json.NewDecoder(r.Body)
+	defer r.Body.Close()
+	if err := decoder.Decode(&signedTX); err != nil {
+		respond(w, http.StatusBadRequest, ErrorResponse{Error: fmt.Sprintf("failed to decode into signed transaction: %s", err)})
+		return
+	}
+
+	//using state package, save the transaction into mempool.
+	//its up to the wallet to not submit the transaction if there is not enough
+	//balance.
+	if err := h.State.UpsertWalletTransaction(signedTX); err != nil {
+		respond(w, http.StatusBadRequest, ErrorResponse{Error: fmt.Sprintf("failed to insert into mempool: %s", err)})
+		return
+	}
+
+	msg := struct {
+		Status string `json:"status"`
+	}{
+		Status: "OK",
+	}
+	respond(w, http.StatusOK, msg)
 }
 
 func respond(w http.ResponseWriter, statusCode int, data any) error {

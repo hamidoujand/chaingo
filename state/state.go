@@ -67,3 +67,29 @@ func (s *State) QueryAccount(accountID database.AccountID) (database.Account, er
 func (s *State) Genesis() genesis.Genesis {
 	return s.genesis
 }
+
+func (s *State) UpsertWalletTransaction(signedTX database.SignedTX) error {
+	//It's up to the wallet to make sure the account has a proper
+	// balance and this transaction has a proper nonce. Fees will be taken if
+	// this transaction is mined into a block it doesn't have enough money to
+	// pay or the nonce isn't the next expected nonce for the account.
+
+	//validate the signature
+	if err := signedTX.Validate(s.genesis.ChainID); err != nil {
+		return fmt.Errorf("validate: %w", err)
+	}
+
+	//create a blockTx from it
+	const oneUnitOfGas = 1
+	tx := database.NewBlockTX(signedTX, s.genesis.GasPrice, oneUnitOfGas)
+
+	//insert into mempool.
+	if err := s.mempool.Upsert(tx); err != nil {
+		return fmt.Errorf("upsert blockTX into mempool: %w", err)
+	}
+
+	//TODO: signal mining
+	//TODO: share TX with rest of the network
+
+	return nil
+}
