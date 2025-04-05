@@ -225,7 +225,6 @@ func New(genesis genesis.Genesis) (*Database, error) {
 		}
 
 		db.accounts[accountID] = newAccount(accountID, balance)
-		fmt.Printf("Account %s, Balance %d\n", accountID, balance)
 	}
 
 	return &db, nil
