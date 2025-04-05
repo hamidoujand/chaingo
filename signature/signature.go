@@ -93,16 +93,12 @@ func toSignatureBytes(v, r, s *big.Int) []byte {
 	sig := make([]byte, crypto.SignatureLength)
 
 	//R
-	rBytes := make([]byte, 32)
-	r.FillBytes(rBytes)
-	copy(sig, rBytes)
+	r.FillBytes(sig[:32])
 
 	//S
-	sBytes := make([]byte, 32)
-	s.FillBytes(sBytes)
-	copy(sig, sBytes)
+	s.FillBytes(sig[32:64])
 
-	recoverID := v.Uint64() - chaingoID*2 - 35
+	recoverID := v.Uint64() - (chaingoID*2 + 35)
 	sig[64] = byte(recoverID)
 
 	return sig
