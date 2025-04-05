@@ -4,6 +4,10 @@
 
 
 
+# curl 
+# curl http://localhost:8000/genesis/list     
+# curl http://localhost:8000/accounts
+
 tidy:
 	go mod tidy 
 	go mod vendor 

@@ -60,6 +60,10 @@ func (s *State) Accounts() map[database.AccountID]database.Account {
 	return s.db.Copy()
 }
 
+func (s *State) QueryAccount(accountID database.AccountID) (database.Account, error) {
+	return s.db.Query(accountID)
+}
+
 func (s *State) Genesis() genesis.Genesis {
 	return s.genesis
 }
