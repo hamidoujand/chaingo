@@ -4,11 +4,13 @@ import (
 	"net/http"
 
 	"github.com/hamidoujand/chaingo/handlers/public"
+	"github.com/hamidoujand/chaingo/nameservice"
 	"github.com/hamidoujand/chaingo/state"
 )
 
 type MuxConfig struct {
 	State *state.State
+	NS    *nameservice.Nameservice
 }
 
 func PublicMux(conf MuxConfig) http.Handler {
@@ -16,6 +18,7 @@ func PublicMux(conf MuxConfig) http.Handler {
 
 	h := public.Handlers{
 		State: conf.State,
+		NS:    conf.NS,
 	}
 
 	mux.HandleFunc("GET /genesis/list", h.Genesis)

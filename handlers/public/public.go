@@ -8,11 +8,13 @@ import (
 	"net/http"
 
 	"github.com/hamidoujand/chaingo/database"
+	"github.com/hamidoujand/chaingo/nameservice"
 	"github.com/hamidoujand/chaingo/state"
 )
 
 type Handlers struct {
 	State *state.State
+	NS    *nameservice.Nameservice
 }
 
 func (h *Handlers) Genesis(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +71,9 @@ func (h *Handlers) Mempool(w http.ResponseWriter, r *http.Request) {
 
 		t := tx{
 			FromAccount: blockTX.FromID,
-			To:          blockTX.ToID,
+			FromName:    h.NS.Lookup(blockTX.FromID),
+			ToAccount:   blockTX.ToID,
+			ToName:      h.NS.Lookup(blockTX.ToID),
 			ChainID:     blockTX.ChainID,
 			Nonce:       blockTX.Nonce,
 			Value:       blockTX.Value,

@@ -4,7 +4,9 @@ import "github.com/hamidoujand/chaingo/database"
 
 type tx struct {
 	FromAccount database.AccountID `json:"from"`
-	To          database.AccountID `json:"to"`
+	FromName    string             `json:"from_name"`
+	ToAccount   database.AccountID `json:"to"`
+	ToName      string             `json:"to_name"`
 	ChainID     uint16             `json:"chain_id"`
 	Nonce       uint64             `json:"nonce"`
 	Value       uint64             `json:"value"`

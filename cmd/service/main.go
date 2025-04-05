@@ -15,6 +15,7 @@ import (
 	"github.com/hamidoujand/chaingo/database"
 	"github.com/hamidoujand/chaingo/genesis"
 	"github.com/hamidoujand/chaingo/handlers"
+	"github.com/hamidoujand/chaingo/nameservice"
 	"github.com/hamidoujand/chaingo/selector"
 	"github.com/hamidoujand/chaingo/state"
 )
@@ -45,6 +46,11 @@ func run() error {
 		publicHost = "0.0.0.0:8000"
 	}
 
+	keysFolder := os.Getenv("CHAINGO_KEYS_DIR")
+	if keysFolder == "" {
+		keysFolder = "block"
+	}
+
 	//==========================================================================
 	// Blockchain
 
@@ -71,10 +77,22 @@ func run() error {
 	}
 
 	//==========================================================================
+	// Nameservice
+	ns, err := nameservice.New(keysFolder)
+	if err != nil {
+		return fmt.Errorf("new nameservice: %w", err)
+	}
+
+	for acc, name := range ns.Copy() {
+		log.Printf("name=%s account=%s", name, acc)
+	}
+
+	//==========================================================================
 	// Mux
 
 	mux := handlers.PublicMux(handlers.MuxConfig{
 		State: state,
+		NS:    ns,
 	})
 
 	//==========================================================================
