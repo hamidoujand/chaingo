@@ -53,7 +53,37 @@ func (h *Handlers) Accounts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) Mempool(w http.ResponseWriter, r *http.Request) {
+	accountSTR := r.PathValue("accountID")
 
+	mempool := h.State.Mempool()
+
+	transactions := make([]tx, 0, len(mempool))
+
+	for _, blockTX := range mempool {
+
+		//if accountID is present then only include that tx if accountID is either equal to FromID or ToID.
+		if (accountSTR != "") && ((database.AccountID(accountSTR) != blockTX.FromID) && database.AccountID(accountSTR) != blockTX.ToID) {
+			continue
+		}
+
+		t := tx{
+			FromAccount: blockTX.FromID,
+			To:          blockTX.ToID,
+			ChainID:     blockTX.ChainID,
+			Nonce:       blockTX.Nonce,
+			Value:       blockTX.Value,
+			Tip:         blockTX.Tip,
+			Data:        blockTX.Data,
+			TimeStamp:   blockTX.Timestamp,
+			GasPrice:    blockTX.GasPrice,
+			GasUnits:    blockTX.GasUnits,
+			Sig:         blockTX.SignatureString(),
+		}
+
+		transactions = append(transactions, t)
+	}
+
+	respond(w, http.StatusOK, transactions)
 }
 
 func (h *Handlers) SubmitTX(w http.ResponseWriter, r *http.Request) {

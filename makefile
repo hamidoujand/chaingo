@@ -7,6 +7,7 @@
 # curl 
 # curl http://localhost:8000/genesis/list     
 # curl http://localhost:8000/accounts
+# curl http://localhost:8000/transactions/uncommit/list
 
 tidy:
 	go mod tidy 

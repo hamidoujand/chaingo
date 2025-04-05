@@ -22,6 +22,7 @@ func PublicMux(conf MuxConfig) http.Handler {
 	mux.HandleFunc("GET /accounts/list", h.Accounts)
 	mux.HandleFunc("GET /accounts/list/{accountID}", h.Accounts)
 	mux.HandleFunc("GET /transactions/uncommit/list", h.Mempool)
+	mux.HandleFunc("GET /transactions/uncommit/list/{accountID}", h.Mempool)
 	mux.HandleFunc("POST /transactions/submit", h.SubmitTX)
 
 	return mux
