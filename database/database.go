@@ -17,7 +17,7 @@ import (
 )
 
 //==============================================================================
-// Account
+// AccountID
 
 // AccountID represents the last 20 bytes of the public key.
 type AccountID string
@@ -257,3 +257,45 @@ func (db *Database) Copy() map[AccountID]Account {
 
 	return cp
 }
+
+//==============================================================================
+// Block (batch of transactions)
+
+// BlockHeader represents common information required by each block.
+type BlockHeader struct {
+	//Represents the block height (e.g., 0 for genesis, 1 for the next block).
+	Number uint64 `json:"number"`
+	// The SHA-256 hash (or similar) of the previous block’s header.
+	// Forms the "chain" in blockchain by linking blocks immutably.
+	PrevBlockHash string `json:"prev_block_hash"`
+	Timestamp     uint64 `json:"timestamp"`
+	// The miner’s address who receives the MiningReward
+	BeneficiaryID AccountID `json:"beneficiary"`
+	// Controls how hard the Proof-of-Work (PoW) puzzle is.
+	// Higher value = more leading zeros required in the block hash.
+	Difficulty   uint16 `json:"difficulty"`
+	MiningReward uint64 `json:"mining_reward"`
+	// Merkle root hash of the entire accounts and balances
+	// Allows lightweight verification of state without storing all data.
+	StateRoot string `json:"state_root"`
+	// Merkle root hash of all transactions in the block.
+	// Ensures transactions are tamper-proof.
+	TransRoot string `json:"trans_root"`
+	// A random value miners change to find a valid block hash.
+	// In PoW, this is the "guess" to solve the cryptographic puzzle.
+	Nonce uint64 `json:"nonce"`
+}
+
+// BlockData represents a block that can be serialized on disk and over the network.
+type BlockData struct {
+	Hash   string      `json:"hash"`
+	Header BlockHeader `json:"block"`
+	Trans  []BlockTX   `json:"trans"`
+}
+
+// Block represents a block inside memory and transaction will be inside of a merkle tree.
+type Block struct {
+	Header BlockHeader
+}
+
+func NewBlockData()
