@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"hash"
+
+	"github.com/ethereum/go-ethereum/common/hexutil"
 )
 
 /*
@@ -20,7 +22,7 @@ The root hash (called MerkleRoot) acts as a fingerprint for the entire dataset.
 // Hashable is the behavior that transaction data must have to be used in merkle tree.
 type Hashable[T any] interface {
 	Hash() ([]byte, error)
-	Equal(other T) bool
+	Equals(other T) bool
 }
 
 //==============================================================================
@@ -69,6 +71,27 @@ func (n *Node[T]) verify() ([]byte, error) {
 	return h.Sum(nil), nil
 }
 
+// CalculateHash is a helper function to calculate the hash of current node.
+func (n *Node[T]) CalculateHash() ([]byte, error) {
+	//1. if its leaf node, we hash the data
+	if n.leaf {
+		return n.Value.Hash()
+	}
+
+	//2. otherwise its a intermediate node, so we hash the left and right
+	h := n.Tree.hashStrategy()
+	if _, err := h.Write(append(n.Left.Hash, n.Right.Hash...)); err != nil {
+		return nil, fmt.Errorf("writing hash: %w", err)
+	}
+
+	return h.Sum(nil), nil
+}
+
+// String returns a string representation of the node.
+func (n *Node[T]) String() string {
+	return fmt.Sprintf("%t %t %v %v", n.leaf, n.dup, n.Hash, n.Value)
+}
+
 //==============================================================================
 // Tree
 
@@ -78,6 +101,12 @@ type Tree[T Hashable[T]] struct {
 	Leafs        []*Node[T]
 	MerkleRoot   []byte           //Final root hash
 	hashStrategy func() hash.Hash //default sha256.New
+}
+
+func WithHashStrategy[T Hashable[T]](hashStrategy func() hash.Hash) func(t *Tree[T]) {
+	return func(t *Tree[T]) {
+		t.hashStrategy = hashStrategy
+	}
 }
 
 // NewTree constructs a new Merkle tree with values that have Hashable behavior.
@@ -150,6 +179,63 @@ func (t *Tree[T]) Generate(values []T) error {
 	return nil
 }
 
+// Rebuild is a helper function that will rebuild the tree reusing only the
+// data that it currently holds in the leaves.
+func (t *Tree[T]) Rebuild() error {
+	//1. collect data in the leafs
+	var nodes []T
+
+	for _, node := range t.Leafs {
+		nodes = append(nodes, node.Value)
+	}
+
+	//2. generate the tree
+	if err := t.Generate(nodes); err != nil {
+		return fmt.Errorf("regenerating tree: %w", err)
+	}
+	return nil
+}
+
+// Values returns a slice of unique values in the tree.
+func (t *Tree[T]) Values() []T {
+	var values []T
+	for _, node := range t.Leafs {
+		values = append(values, node.Value)
+	}
+
+	l := len(t.Leafs)
+	//check the last 2 values, if they are having same hash, they are equal
+	if bytes.Equal(t.Leafs[l-1].Hash, t.Leafs[l-2].Hash) {
+		return values[:l-1]
+	}
+	return values
+}
+
+// RootHex converts the merkle root to hex encoded string.
+func (t *Tree[T]) RootHex() string {
+	return hexutil.Encode(t.MerkleRoot)
+}
+
+// String returns a string representation of the tree. Only leaf nodes are
+// included in the output.
+func (t *Tree[T]) String() string {
+	s := ""
+
+	for _, l := range t.Leafs {
+		s += fmt.Sprint(l)
+		s += "\n"
+	}
+
+	return s
+}
+
+// MarshalText implements the TextMarshaler interface and produces a panic
+// if anyone tries to marshal the Merkle tree. I don't want this to happen.
+// Use the Values function to return a slice that can be marshaled.
+func (t *Tree[T]) MarshalText() (text []byte, err error) {
+	panic("do not marshal the merkle tree, use Values")
+}
+
 // Verify validates the hashes at each level of the tree and returns true
 // if the resulting hash at the root of the tree matches the resulting root hash.
 func (t *Tree[T]) Verify() error {
@@ -170,7 +256,7 @@ func (t *Tree[T]) Proof(data T) ([][]byte, []int64, error) {
 	//1. search through all leaf nodes.
 	for _, node := range t.Leafs {
 		//2. check if this is the node we want
-		if !node.Value.Equal(data) {
+		if !node.Value.Equals(data) {
 			continue
 		}
 
@@ -179,11 +265,11 @@ func (t *Tree[T]) Proof(data T) ([][]byte, []int64, error) {
 
 		//3.start with the immediate parent node
 		parent := node.Parent
-
+		currentNode := node
 		//4. walk up the tree
 		for parent != nil {
 			//5. check to see if the data is left or right child
-			if bytes.Equal(parent.Left.Hash, node.Hash) {
+			if bytes.Equal(parent.Left.Hash, currentNode.Hash) {
 				//node is the left child, so we need the right child hash as proof
 				merkleProofs = append(merkleProofs, parent.Right.Hash)
 				//right ones concat second, 1
@@ -194,11 +280,66 @@ func (t *Tree[T]) Proof(data T) ([][]byte, []int64, error) {
 				//left ones concat first , 0
 				order = append(order, 0)
 			}
+
+			//move up
+			currentNode = parent
+			parent = parent.Parent
 		}
 
 		return merkleProofs, order, nil
 	}
 	return nil, nil, errors.New("unable to find data in tree")
+}
+
+// VerifyData indicates whether a given piece of data is in the tree and if the
+// hashes are valid for that data.
+func (t *Tree[T]) VerifyData(data T) error {
+	//1. search through all leaf nodes
+	for _, node := range t.Leafs {
+		//2.check if the current node is the node we want .
+		if !node.Value.Equals(data) {
+			continue
+		}
+
+		//3. select the immediate parent
+		parent := node.Parent
+
+		//4. walk up the tree
+		for parent != nil {
+			//5. calculate left child hash
+			leftChildHash, err := parent.Left.CalculateHash()
+			if err != nil {
+				return fmt.Errorf("calculateHash left: %w", err)
+			}
+
+			//6. calculate right child hash
+			rightChildHash, err := parent.Right.CalculateHash()
+			if err != nil {
+				return fmt.Errorf("calculateHash right: %w", err)
+			}
+
+			//7. recompute the parent hash to see if its equal to what we currently have.
+			h := t.hashStrategy()
+			if _, err := h.Write(append(leftChildHash, rightChildHash...)); err != nil {
+				return fmt.Errorf("writing parent hash: %w", err)
+			}
+
+			//8. check
+			parentHash := h.Sum(nil)
+			if !bytes.Equal(parentHash, parent.Hash) {
+				return errors.New("hash mismatch: data may be tampered with")
+			}
+
+			//9. move up
+			parent = parent.Parent
+		}
+
+		//10. all hashes matched.
+		return nil
+	}
+
+	//11. data not found.
+	return errors.New("data not found in the tree")
 }
 
 //==============================================================================
