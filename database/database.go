@@ -2,13 +2,17 @@ package database
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
+	"log"
+	"math"
 	"math/big"
 	"sync"
 	"time"
 
 	"crypto/ecdsa"
+	"crypto/rand"
 
 	"maps"
 
@@ -357,4 +361,119 @@ func ToBlock(blockData BlockData) (Block, error) {
 	}
 
 	return block, nil
+}
+
+type POWConf struct {
+	BeneficiaryID AccountID
+	Difficulty    uint16
+	MiningReward  uint64
+	PrevBlock     Block
+	StateRoot     string
+	Trans         []BlockTX
+}
+
+// POW constructs a block and performs the work to solve the cryptographic puzzle.
+func POW(ctx context.Context, cfg POWConf) (Block, error) {
+	//we need to keep testing the nonce value, until we find a nonce value
+	//that gives us a hash or block header that solves the puzzle.
+
+	//when mining the first block, the previous block hash will be a zero hash
+	preBlockHash := signature.ZeroHash
+	if cfg.PrevBlock.Header.Number > 0 {
+		preBlockHash = cfg.PrevBlock.Hash()
+	}
+
+	//construct the merkle tree from the transactions for this block, we need the
+	// root hash to be part of the header to be used for mining.
+	tree, err := merkle.NewTree(cfg.Trans)
+	if err != nil {
+		return Block{}, fmt.Errorf("newTree: %w", err)
+	}
+
+	block := Block{
+		Header: BlockHeader{
+			Number:        cfg.PrevBlock.Header.Number + 1,
+			PrevBlockHash: preBlockHash,
+			Timestamp:     uint64(time.Now().UTC().UnixMilli()),
+			BeneficiaryID: cfg.BeneficiaryID,
+			Difficulty:    cfg.Difficulty,
+			MiningReward:  cfg.MiningReward,
+			StateRoot:     cfg.StateRoot,
+			TransRoot:     tree.RootHex(),
+			Nonce:         0, // will be changed with POW.
+		},
+		MerkleTree: tree,
+	}
+
+	//perform the POW
+	if err := block.performPOW(ctx); err != nil {
+		return Block{}, fmt.Errorf("performPOW: %w", err)
+	}
+
+	return block, nil
+}
+
+func (b *Block) performPOW(ctx context.Context) error {
+	log.Println("mining started")
+	defer log.Println("mining completed")
+
+	//log the transactions that are part of the current block
+	for _, tx := range b.MerkleTree.Values() {
+		log.Printf("running pow on tx: %s", tx)
+	}
+
+	//choose a random starting point for nonce, and after that increment nonce by 1.
+	//here is the place you can get creative to solve the puzzle faster.
+
+	num, err := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
+	if err != nil {
+		return fmt.Errorf("generating nonce starting point: %w", err)
+	}
+
+	b.Header.Nonce = num.Uint64()
+
+	var attempt uint64
+	for {
+		attempt++
+		//every one mill iteration we log
+		if attempt%1_000_000 == 0 {
+			log.Printf("mining: attempts[%d]\n", attempt)
+		}
+
+		//check to see if ctx is cancelled, another node solved it faster.
+		if err := ctx.Err(); err != nil {
+			log.Println("mining cancelled")
+			return err
+		}
+
+		//hash the block with the new nonce
+		hashed := b.Hash()
+		if !isPuzzleSolved(b.Header.Difficulty, hashed) {
+			b.Header.Nonce++
+			continue
+		}
+
+		//otherwise we solved it
+		fmt.Printf("attempt[%d]:mining: solved the puzzle: preBlock[%s] newBlock[%s]\n", attempt, b.Header.PrevBlockHash, hashed)
+		return nil
+	}
+
+}
+
+// isPuzzleSolved checks if a given hash meets the required difficulty level
+// by verifying that it starts with a certain number of leading zeros.
+func isPuzzleSolved(difficulty uint16, hash string) bool {
+	//This is a hardcoded string that represents the pattern the hash needs to match
+	//since difficulty is adjustable, only a portion of this string is used for comparison.
+	const match = "0x00000000000000000"
+
+	//many cryptographic hashes (like Keccak-256/SHA-3) produce 64-character hex strings.
+	//with the 0x prefix, the total length becomes 66 (e.g., 0x<64_char_hex>).
+	if len(hash) != 66 {
+		return false
+	}
+
+	//adjust difficulty
+	difficulty += 2 // 0x also
+	return hash[:difficulty] == match[:difficulty]
 }
