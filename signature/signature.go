@@ -2,6 +2,7 @@ package signature
 
 import (
 	ecd "crypto/ecdsa"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 
 // our unique chain ID.
 const chaingoID = 29
+const ZeroHash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 
 func Sign(tx any, privateKey *ecd.PrivateKey) (v, r, s *big.Int, err error) {
 	//marshal it
@@ -67,7 +69,7 @@ func ExtractAddress(tx any, v, r, s *big.Int) (string, error) {
 	digest := crypto.Keccak256(stamp, bs)
 
 	//convert RSV to 65 bytes format
-	sig := toSignatureBytes(v, r, s)
+	sig := ToSignatureBytes(v, r, s)
 
 	//extract the public key
 	publicKey, err := crypto.SigToPub(digest, sig)
@@ -81,7 +83,7 @@ func ExtractAddress(tx any, v, r, s *big.Int) (string, error) {
 // SignatureString returns the signature as string.
 func SignatureString(v, r, s *big.Int) string {
 	//without chaingoID
-	sig := toSignatureBytes(v, r, s)
+	sig := ToSignatureBytes(v, r, s)
 
 	//with chaingoID
 	sig[64] = byte(v.Uint64())
@@ -89,7 +91,20 @@ func SignatureString(v, r, s *big.Int) string {
 	return hexutil.Encode(sig)
 }
 
-func toSignatureBytes(v, r, s *big.Int) []byte {
+// Hash returns a unique string to every value.
+func Hash(val any) string {
+	bs, err := json.Marshal(val)
+	if err != nil {
+		return ZeroHash
+	}
+
+	hash := sha256.Sum256(bs)
+	return hexutil.Encode(hash[:])
+}
+
+// ToSignatureBytes converts the r, s, v values into a slice of bytes
+// with the removal of the ChaingoID.
+func ToSignatureBytes(v, r, s *big.Int) []byte {
 	sig := make([]byte, crypto.SignatureLength)
 
 	//R
@@ -103,6 +118,8 @@ func toSignatureBytes(v, r, s *big.Int) []byte {
 
 	return sig
 }
+
+// ==============================================================================
 
 func toSignatureRSV(sig []byte) (v, r, s *big.Int) {
 	r = big.NewInt(0).SetBytes(sig[:32])

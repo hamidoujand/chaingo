@@ -1,6 +1,7 @@
 package database
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"math/big"
@@ -11,8 +12,10 @@ import (
 
 	"maps"
 
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/hamidoujand/chaingo/genesis"
+	"github.com/hamidoujand/chaingo/merkle"
 	"github.com/hamidoujand/chaingo/signature"
 )
 
@@ -165,24 +168,6 @@ func (stx SignedTX) String() string {
 	return fmt.Sprintf("%s:%d", stx.FromID, stx.Nonce)
 }
 
-// BlockTX represents a TX inside of the block.
-type BlockTX struct {
-	SignedTX
-	Timestamp uint64 `json:"timestamp"` //time that the transaction was received.
-	GasPrice  uint64 `json:"gas_price"` //price for single unite of gas.
-	GasUnits  uint64 `json:"gas_units"` //number of units of gas used for this transaction.
-}
-
-// NewBlockTX constructs a new block transaction.
-func NewBlockTX(signedTx SignedTX, gasPrice uint64, uintOfGas uint64) BlockTX {
-	return BlockTX{
-		SignedTX:  signedTx,
-		Timestamp: uint64(time.Now().UTC().UnixMilli()),
-		GasPrice:  gasPrice,
-		GasUnits:  uintOfGas,
-	}
-}
-
 //==============================================================================
 // Account
 
@@ -261,6 +246,43 @@ func (db *Database) Copy() map[AccountID]Account {
 //==============================================================================
 // Block (batch of transactions)
 
+// BlockTX represents a TX inside of the block.
+type BlockTX struct {
+	SignedTX
+	Timestamp uint64 `json:"timestamp"` //time that the transaction was received.
+	GasPrice  uint64 `json:"gas_price"` //price for single unite of gas.
+	GasUnits  uint64 `json:"gas_units"` //number of units of gas used for this transaction.
+}
+
+// NewBlockTX constructs a new block transaction.
+func NewBlockTX(signedTx SignedTX, gasPrice uint64, uintOfGas uint64) BlockTX {
+	return BlockTX{
+		SignedTX:  signedTx,
+		Timestamp: uint64(time.Now().UTC().UnixMilli()),
+		GasPrice:  gasPrice,
+		GasUnits:  uintOfGas,
+	}
+}
+
+// Hash implements the merkle Hashable interface for providing a hash
+// of a block transaction.
+func (btx BlockTX) Hash() ([]byte, error) {
+	str := signature.Hash(btx)
+
+	//remove the 0x from the hash string
+	return hexutil.Decode(str[2:])
+}
+
+// Equals implements the merkle Hashable interface for providing an equality
+// check between two block transactions. If the nonce and signatures are the
+// same, the two blocks are the same.
+func (btx BlockTX) Equals(other BlockTX) bool {
+	txSig := signature.ToSignatureBytes(btx.V, btx.R, btx.S)
+	otherSig := signature.ToSignatureBytes(other.V, other.R, other.S)
+
+	return btx.Nonce == other.Nonce && bytes.Equal(txSig, otherSig)
+}
+
 // BlockHeader represents common information required by each block.
 type BlockHeader struct {
 	//Represents the block height (e.g., 0 for genesis, 1 for the next block).
@@ -293,9 +315,46 @@ type BlockData struct {
 	Trans  []BlockTX   `json:"trans"`
 }
 
-// Block represents a block inside memory and transaction will be inside of a merkle tree.
+// Block represents a block inside memory and transactions will be inside of a merkle tree.
 type Block struct {
-	Header BlockHeader
+	Header     BlockHeader
+	MerkleTree *merkle.Tree[BlockTX]
 }
 
-func NewBlockData()
+// Hash returns the unique hash for the Block.
+func (b Block) Hash() string {
+	//first block always has a Zero hash
+	if b.Header.Number == 0 {
+		return signature.ZeroHash
+	}
+
+	//we only hash the header not the entire block and transactions, so when
+	//we need to check, we only need the header not the entire block.
+	return signature.Hash(b.Header)
+}
+
+// NewBlockData construct a BlockData from a Block.
+func NewBlockData(block Block) BlockData {
+	blockData := BlockData{
+		Hash:   block.Hash(),
+		Header: block.Header,
+		Trans:  block.MerkleTree.Values(),
+	}
+
+	return blockData
+}
+
+// ToBlock takes a BlockData from disk or network and converts it to Block to use inside memory.
+func ToBlock(blockData BlockData) (Block, error) {
+	tree, err := merkle.NewTree(blockData.Trans)
+	if err != nil {
+		return Block{}, fmt.Errorf("newTree: %w", err)
+	}
+
+	block := Block{
+		Header:     blockData.Header,
+		MerkleTree: tree,
+	}
+
+	return block, nil
+}
