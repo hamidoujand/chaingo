@@ -18,6 +18,7 @@ import (
 	"github.com/hamidoujand/chaingo/nameservice"
 	"github.com/hamidoujand/chaingo/selector"
 	"github.com/hamidoujand/chaingo/state"
+	"github.com/hamidoujand/chaingo/worker"
 )
 
 func main() {
@@ -75,6 +76,10 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("new state: %w", err)
 	}
+
+	defer state.Shutdown()
+
+	worker.Run(state)
 
 	//==========================================================================
 	// Nameservice

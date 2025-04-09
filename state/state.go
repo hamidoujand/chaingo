@@ -20,12 +20,20 @@ type Config struct {
 	Strategy      string
 }
 
+// Worker represents the behavior required to do mining, peer update, shareTx across network.
+type Worker interface {
+	Shutdown()
+	SignalStartMining()
+	SignalCancelMining()
+}
+
 // State manages the blockchain database for us.
 type State struct {
 	beneficiaryID database.AccountID
 	genesis       genesis.Genesis
 	db            *database.Database
 	mempool       *mempool.Mempool
+	Worker        Worker
 }
 
 func New(conf Config) (*State, error) {
@@ -139,4 +147,11 @@ func (s *State) MineNewBlock(ctx context.Context) (database.Block, error) {
 	}
 
 	return block, nil
+}
+
+func (s *State) Shutdown() error {
+	//stop all blockchain writing activity
+	s.Worker.Shutdown()
+
+	return nil
 }
