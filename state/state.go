@@ -1,12 +1,17 @@
 package state
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"log"
 
 	"github.com/hamidoujand/chaingo/database"
 	"github.com/hamidoujand/chaingo/genesis"
 	"github.com/hamidoujand/chaingo/mempool"
 )
+
+var ErrNoTransaction = errors.New("no transaction inside mempool")
 
 type Config struct {
 	//AccountID that receives the mining rewards for the Node.
@@ -90,6 +95,48 @@ func (s *State) UpsertWalletTransaction(signedTX database.SignedTX) error {
 
 	//TODO: signal mining
 	//TODO: share TX with rest of the network
-
+	//HACK just for checking POW in action, will be removed
+	if s.mempool.Count() == 6 {
+		go func() {
+			_, err := s.MineNewBlock(context.Background())
+			if err != nil {
+				fmt.Println(err)
+			}
+			s.mempool.Truncate()
+		}()
+	}
 	return nil
+}
+
+func (s *State) MineNewBlock(ctx context.Context) (database.Block, error) {
+	defer log.Println("mined a new block")
+
+	if s.mempool.Count() == 0 {
+		return database.Block{}, ErrNoTransaction
+	}
+
+	//peek best transactions
+	trans := s.mempool.PickBest(int(s.genesis.TransPerBlock))
+
+	difficulty := s.genesis.Difficulty
+
+	block, err := database.POW(ctx, database.POWConf{
+		BeneficiaryID: s.beneficiaryID,
+		Difficulty:    difficulty,
+		MiningReward:  s.genesis.MiningReward,
+		PrevBlock:     s.db.LatestBlock(),
+		StateRoot:     s.db.HashState(),
+		Trans:         trans,
+	})
+
+	if err != nil {
+		return database.Block{}, fmt.Errorf("pow: %w", err)
+	}
+
+	//check to see if we are not cancelled
+	if err := ctx.Err(); err != nil {
+		return database.Block{}, err
+	}
+
+	return block, nil
 }

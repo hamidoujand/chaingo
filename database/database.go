@@ -3,11 +3,14 @@ package database
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
 	"math"
 	"math/big"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,7 +19,6 @@ import (
 
 	"maps"
 
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/hamidoujand/chaingo/genesis"
 	"github.com/hamidoujand/chaingo/merkle"
@@ -195,9 +197,10 @@ func newAccount(accountID AccountID, Balance uint64) Account {
 // Database manages all the accounts who transacted on the blockchain.
 // since we store all blocks on disk, we can read them and rebuild our database every time.
 type Database struct {
-	mu       sync.RWMutex
-	genesis  genesis.Genesis
-	accounts map[AccountID]Account
+	mu          sync.RWMutex
+	genesis     genesis.Genesis
+	latestBlock Block
+	accounts    map[AccountID]Account
 }
 
 // New creates a new database and applies the genesis.
@@ -247,6 +250,38 @@ func (db *Database) Copy() map[AccountID]Account {
 	return cp
 }
 
+// LatestBlock returns the last block.
+func (db *Database) LatestBlock() Block {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	return db.latestBlock
+}
+
+// UpdateLatestBlock provides safe access to set the latest block.
+func (db *Database) UpdateLatestBlock(block Block) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	db.latestBlock = block
+}
+
+// HashState returns a hash of the accounts and their balances.
+func (db *Database) HashState() string {
+	accounts := make([]Account, 0, len(db.accounts))
+	db.mu.RLock()
+	for _, acc := range db.accounts {
+		accounts = append(accounts, acc)
+	}
+	db.mu.RUnlock()
+
+	//sort them by account, since map does not preserve ordering.
+	slices.SortFunc(accounts, func(a, b Account) int {
+		return strings.Compare(string(a.AccountID), string(b.AccountID))
+	})
+
+	return signature.Hash(accounts)
+}
+
 //==============================================================================
 // Block (batch of transactions)
 
@@ -273,8 +308,8 @@ func NewBlockTX(signedTx SignedTX, gasPrice uint64, uintOfGas uint64) BlockTX {
 func (btx BlockTX) Hash() ([]byte, error) {
 	str := signature.Hash(btx)
 
-	//remove the 0x from the hash string
-	return hexutil.Decode(str[2:])
+	// Need to remove the 0x prefix from the hash.
+	return hex.DecodeString(str[2:])
 }
 
 // Equals implements the merkle Hashable interface for providing an equality
