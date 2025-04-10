@@ -25,6 +25,8 @@ import (
 	"github.com/hamidoujand/chaingo/signature"
 )
 
+var ErrChainForked = errors.New("blockchain is forked: start resyncing")
+
 //==============================================================================
 // AccountID
 
@@ -282,6 +284,20 @@ func (db *Database) HashState() string {
 	return signature.Hash(accounts)
 }
 
+// ApplyTransactions applies transactions against database.
+func (db *Database) ApplyTransaction(block Block, tx BlockTX) error {
+	return nil
+}
+
+// ApplyMiningReward gives the mining reword to beneficiary.
+func (db *Database) ApplyMiningReward(block Block) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	acc := db.accounts[block.Header.BeneficiaryID]
+	acc.Balance += block.Header.MiningReward
+	db.accounts[block.Header.BeneficiaryID] = acc
+}
+
 //==============================================================================
 // Block (batch of transactions)
 
@@ -493,6 +509,65 @@ func (b *Block) performPOW(ctx context.Context) error {
 		return nil
 	}
 
+}
+
+// ValidateBlock validates the block against the rules.
+func (b Block) ValidateBlock(prevBlock Block, stateRoot string) error {
+
+	//Fork: when a node mines the new block it will immediately adds it to its
+	//own blockchain and assumes every other node also accepts it, now if another
+	//node also mines the new block then it sends to others and the one with the
+	//new mined block will reject it since it already has that block calculated
+	//on its own. now the rest of network move on and the node that rejected the
+	//block is left behind and when it receives the new blocks since the previous
+	//hash is not going to match with the one that the node itself mined it will
+	//keep rejecting.
+	//to solve it, the node needs to get rid off the block that itself mined and
+	//ask other peers to give it the rest of the chain.
+
+	//the node that sent this block has a different chain that is 2 or more blocks
+	// a head and our chain is left behind.
+	nextBlockNumber := prevBlock.Header.Number + 1
+	if b.Header.Number >= (nextBlockNumber + 2) {
+		return ErrChainForked
+	}
+
+	if b.Header.Number != nextBlockNumber {
+		return fmt.Errorf("not the next block number: current[%d], next[%d]", b.Header.Number, nextBlockNumber)
+	}
+
+	if b.Header.Difficulty < prevBlock.Header.Difficulty {
+		return fmt.Errorf("block difficulty is less that previous block: current[%d] parent[%d]", b.Header.Difficulty, prevBlock.Header.Difficulty)
+	}
+
+	//check to see if the puzzle is solved
+	h := b.Hash()
+	if !isPuzzleSolved(b.Header.Difficulty, h) {
+		return fmt.Errorf("%s, invalid block hash", h)
+	}
+
+	prevHash := prevBlock.Hash()
+	if b.Header.PrevBlockHash != prevHash {
+		return fmt.Errorf("mismatch at the previous block hash: got[%s] exp[%s]", b.Header.PrevBlockHash, prevHash)
+	}
+
+	//the current block's timestamp must be greater than the previous one
+	parentTimestamp := time.Unix(int64(prevBlock.Header.Timestamp), 0)
+	currentTimestamp := time.Unix(int64(b.Header.Timestamp), 0)
+
+	if currentTimestamp.Before(parentTimestamp) {
+		return fmt.Errorf("current block's timestamp is before parent block's timestamp: current[%s], parent[%s]", currentTimestamp, parentTimestamp)
+	}
+
+	if b.Header.StateRoot != stateRoot {
+		return fmt.Errorf("hash of accounting database is wrong: current[%s], expected[%s]", b.Header.StateRoot, stateRoot)
+	}
+
+	if b.Header.TransRoot != b.MerkleTree.RootHex() {
+		return fmt.Errorf("merkle root does not match the transactions state: got=%s, exp=%s", b.Header.TransRoot, b.MerkleTree.RootHex())
+	}
+
+	return nil
 }
 
 // isPuzzleSolved checks if a given hash meets the required difficulty level

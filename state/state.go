@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/hamidoujand/chaingo/database"
 	"github.com/hamidoujand/chaingo/genesis"
@@ -29,6 +30,7 @@ type Worker interface {
 
 // State manages the blockchain database for us.
 type State struct {
+	mu            sync.RWMutex
 	beneficiaryID database.AccountID
 	genesis       genesis.Genesis
 	db            *database.Database
@@ -137,12 +139,57 @@ func (s *State) MineNewBlock(ctx context.Context) (database.Block, error) {
 		return database.Block{}, err
 	}
 
+	//validate the block and then write to the db
+
 	return block, nil
 }
 
 func (s *State) Shutdown() error {
 	//stop all blockchain writing activity
 	s.Worker.Shutdown()
+
+	return nil
+}
+
+// validateAndUpdateDB validates the block against consensus rules. if block
+// passes validation block will be added to disk.
+// this function will be used for both validation of blocks that our node mined
+// or the blocks the node gets from other peers.
+func (s *State) validateAndUpdateDB(block database.Block) error {
+	//need this lock in here, in case our node mined a block and needs to validate
+	//and at the same time we have a block coming on private peer to peer network
+	// we only handle one at the time.
+	//since http request is on its own G, and our worker also creates a G to mine
+	// a new block.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	log.Println("state: validateAndUpdateDB: validating block")
+
+	if err := block.ValidateBlock(s.db.LatestBlock(), s.db.HashState()); err != nil {
+		return fmt.Errorf("validationBlock: %w", err)
+	}
+
+	//TODO: write to the disk
+
+	//updated latest block
+	s.db.UpdateLatestBlock(block)
+
+	//process transaction and apply accounting
+	for _, tx := range block.MerkleTree.Values() {
+		log.Printf("applying and removing tx: %s\n", tx)
+
+		//remove from mempool
+		s.mempool.Delete(tx)
+
+		if err := s.db.ApplyTransaction(block, tx); err != nil {
+			log.Printf("failed to apply transaction %s: %s\n", tx, err)
+			continue
+		}
+	}
+
+	//apply mining reward to the account that mined the block
+	s.db.ApplyMiningReward(block)
 
 	return nil
 }
