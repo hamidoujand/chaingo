@@ -101,18 +101,9 @@ func (s *State) UpsertWalletTransaction(signedTX database.SignedTX) error {
 		return fmt.Errorf("upsert blockTX into mempool: %w", err)
 	}
 
-	//TODO: signal mining
 	//TODO: share TX with rest of the network
-	//HACK just for checking POW in action, will be removed
-	if s.mempool.Count() == 6 {
-		go func() {
-			_, err := s.MineNewBlock(context.Background())
-			if err != nil {
-				fmt.Println(err)
-			}
-			s.mempool.Truncate()
-		}()
-	}
+	s.Worker.SignalStartMining()
+
 	return nil
 }
 
