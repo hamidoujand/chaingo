@@ -19,6 +19,7 @@ type Config struct {
 	BeneficiaryID database.AccountID
 	Genesis       genesis.Genesis
 	Strategy      string
+	Storage       database.Storage
 }
 
 // Worker represents the behavior required to do mining, peer update, shareTx across network.
@@ -36,10 +37,11 @@ type State struct {
 	db            *database.Database
 	mempool       *mempool.Mempool
 	Worker        Worker
+	storage       database.Storage
 }
 
 func New(conf Config) (*State, error) {
-	db, err := database.New(conf.Genesis)
+	db, err := database.New(conf.Genesis, conf.Storage)
 	if err != nil {
 		return nil, fmt.Errorf("new database: %w", err)
 	}
@@ -54,6 +56,7 @@ func New(conf Config) (*State, error) {
 		genesis:       conf.Genesis,
 		db:            db,
 		mempool:       mempool,
+		storage:       conf.Storage,
 	}
 
 	return &s, nil
@@ -173,7 +176,9 @@ func (s *State) validateAndUpdateDB(block database.Block) error {
 		return fmt.Errorf("validationBlock: %w", err)
 	}
 
-	//TODO: write to the disk
+	if err := s.db.Write(block); err != nil {
+		return fmt.Errorf("writing block to disk: %w", err)
+	}
 
 	//updated latest block
 	s.db.UpdateLatestBlock(block)

@@ -18,6 +18,7 @@ import (
 	"github.com/hamidoujand/chaingo/nameservice"
 	"github.com/hamidoujand/chaingo/selector"
 	"github.com/hamidoujand/chaingo/state"
+	"github.com/hamidoujand/chaingo/storage/disk"
 	"github.com/hamidoujand/chaingo/worker"
 )
 
@@ -52,6 +53,17 @@ func run() error {
 		keysFolder = "block"
 	}
 
+	storagePath := os.Getenv("CHAINGO_STORAGE_DIR")
+	if storagePath == "" {
+		storagePath = "block/miner1"
+	}
+	//==========================================================================
+	// Storage
+	disk, err := disk.New(storagePath)
+	if err != nil {
+		return fmt.Errorf("new disk: %w", err)
+	}
+
 	//==========================================================================
 	// Blockchain
 
@@ -71,6 +83,7 @@ func run() error {
 		BeneficiaryID: database.PublicToAccountID(privateKey.PublicKey),
 		Genesis:       genesis,
 		Strategy:      strategy,
+		Storage:       disk,
 	})
 
 	if err != nil {
