@@ -17,3 +17,16 @@ type tx struct {
 	GasUnits    uint64             `json:"gas_units"`
 	Sig         string             `json:"sig"`
 }
+
+type account struct {
+	Account database.AccountID `json:"account"`
+	Name    string             `json:"name"`
+	Balance uint64             `json:"balance"`
+	Nonce   uint64             `json:"nonce"`
+}
+
+type accountInfo struct {
+	LatestBlock string    `json:"latest_block"`
+	Uncommitted int       `json:"uncommitted"`
+	Accounts    []account `json:"accounts"`
+}

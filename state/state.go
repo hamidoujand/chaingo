@@ -140,6 +140,9 @@ func (s *State) MineNewBlock(ctx context.Context) (database.Block, error) {
 	}
 
 	//validate the block and then write to the db
+	if err := s.validateAndUpdateDB(block); err != nil {
+		return database.Block{}, fmt.Errorf("validateAndUpdateDB: %w", err)
+	}
 
 	return block, nil
 }
@@ -192,4 +195,9 @@ func (s *State) validateAndUpdateDB(block database.Block) error {
 	s.db.ApplyMiningReward(block)
 
 	return nil
+}
+
+// LatestBlock returns the latest block.
+func (s *State) LatestBlock() database.Block {
+	return s.db.LatestBlock()
 }

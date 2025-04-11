@@ -52,7 +52,24 @@ func (h *Handlers) Accounts(w http.ResponseWriter, r *http.Request) {
 		accounts = map[database.AccountID]database.Account{accountID: account}
 	}
 
-	respond(w, http.StatusOK, accounts)
+	resp := make([]account, 0, len(accounts))
+	for acc, info := range accounts {
+		account := account{
+			Account: acc,
+			Name:    h.NS.Lookup(acc),
+			Balance: info.Balance,
+			Nonce:   info.Nonce,
+		}
+		resp = append(resp, account)
+	}
+
+	accountInfo := accountInfo{
+		LatestBlock: h.State.LatestBlock().Hash(),
+		Uncommitted: len(h.State.Mempool()),
+		Accounts:    resp,
+	}
+
+	respond(w, http.StatusOK, accountInfo)
 }
 
 func (h *Handlers) Mempool(w http.ResponseWriter, r *http.Request) {

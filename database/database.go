@@ -286,6 +286,60 @@ func (db *Database) HashState() string {
 
 // ApplyTransactions applies transactions against database.
 func (db *Database) ApplyTransaction(block Block, tx BlockTX) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	from, exists := db.accounts[tx.FromID]
+	if !exists {
+		from = newAccount(tx.FromID, 0)
+	}
+
+	to, exists := db.accounts[tx.ToID]
+	if !exists {
+		to = newAccount(tx.ToID, 0)
+	}
+
+	beneficiary, exists := db.accounts[block.Header.BeneficiaryID]
+	if !exists {
+		beneficiary = newAccount(block.Header.BeneficiaryID, 0)
+	}
+
+	//the account needs to pay the gas fee.
+	gasFee := tx.GasPrice * tx.GasUnits
+	if gasFee > from.Balance {
+		gasFee = from.Balance
+	}
+
+	from.Balance -= gasFee
+	beneficiary.Balance += gasFee
+
+	db.accounts[tx.FromID] = from
+	db.accounts[block.Header.BeneficiaryID] = beneficiary
+
+	//perform basic accounting checks
+	if tx.Nonce != (from.Nonce + 1) {
+		return fmt.Errorf("invalid transaction, nonce order mismatch: got=%d, exp=%d", tx.Nonce, from.Nonce+1)
+	}
+
+	if from.Balance == 0 || from.Balance < (tx.Value+tx.Tip) {
+		return fmt.Errorf("invalid transaction, insufficient funds, balance[%d], need[%d]", from.Balance, tx.Value+tx.Tip)
+	}
+
+	//updating account between two parties
+	from.Balance -= tx.Value
+	to.Balance += tx.Value
+
+	//give the beneficiary the tip
+	from.Balance -= tx.Tip
+	beneficiary.Balance += tx.Tip
+
+	//update nonce for From account
+	from.Nonce = tx.Nonce
+
+	//update the accounts
+	db.accounts[tx.FromID] = from
+	db.accounts[tx.ToID] = to
+	db.accounts[block.Header.BeneficiaryID] = beneficiary
 	return nil
 }
 
