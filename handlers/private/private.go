@@ -98,6 +98,28 @@ func (h *Handlers) SubmitPeer(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, nil)
 }
 
+func (h *Handlers) SubmitTransaction(w http.ResponseWriter, r *http.Request) {
+	var tx database.BlockTX
+	if err := json.NewDecoder(r.Body).Decode(&tx); err != nil {
+		respond(w, http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	if err := h.State.UpsertNodeTransaction(tx); err != nil {
+		respond(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	msg := struct {
+		Status string `json:"status"`
+	}{
+		Status: "transaction added to mempool",
+	}
+
+	respond(w, http.StatusOK, msg)
+}
+
+// =============================================================================
 func respond(w http.ResponseWriter, statusCode int, data any) error {
 	w.WriteHeader(statusCode)
 	if statusCode == http.StatusNoContent {

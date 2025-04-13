@@ -37,6 +37,8 @@ type Worker interface {
 	Shutdown()
 	SignalStartMining()
 	SignalCancelMining()
+	SignalShareTX(tx database.BlockTX)
+	Sync()
 }
 
 // State manages the blockchain database for us.
@@ -120,7 +122,7 @@ func (s *State) UpsertWalletTransaction(signedTX database.SignedTX) error {
 		return fmt.Errorf("upsert blockTX into mempool: %w", err)
 	}
 
-	//TODO: share TX with rest of the network
+	s.Worker.SignalShareTX(tx)
 	s.Worker.SignalStartMining()
 
 	return nil
@@ -329,6 +331,32 @@ func (s *State) ProcessProposedBlock(block database.Block) error {
 	}
 
 	s.Worker.SignalCancelMining()
+	return nil
+}
+
+func (s *State) SendTxToPeers(tx database.BlockTX) {
+
+	for _, peer := range s.KnownExternalPeers() {
+		url := fmt.Sprintf("http://%s/node/tx/submit", peer.Host)
+		if err := send(http.MethodPost, url, tx, nil); err != nil {
+			log.Printf("sendTxToPeers: ERROR: %v", err)
+		}
+	}
+}
+
+func (s *State) UpsertNodeTransaction(tx database.BlockTX) error {
+	//validate
+	if err := tx.Validate(s.genesis.ChainID); err != nil {
+		return fmt.Errorf("validate: %w", err)
+	}
+
+	if err := s.UpsertMempool(tx); err != nil {
+		return fmt.Errorf("upsertMempool: %w", err)
+	}
+
+	//signal mining
+	s.Worker.SignalStartMining()
+
 	return nil
 }
 

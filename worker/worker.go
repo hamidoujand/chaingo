@@ -8,9 +8,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hamidoujand/chaingo/database"
 	"github.com/hamidoujand/chaingo/peer"
 	"github.com/hamidoujand/chaingo/state"
 )
+
+// maxTXSharing is max number of tx that can be batched and more than this will be dropped.
+const maxTXSharingRequest = 100 //TODO: requires load testing to find the correct buffer size.
 
 // Worker is the manager of all goroutines created by this package.
 type Worker struct {
@@ -19,6 +23,49 @@ type Worker struct {
 	shutdown     chan struct{}
 	startMining  chan bool
 	cancelMining chan bool
+	txSharing    chan database.BlockTX
+}
+
+// Run creates a worker and attach the worker to the state.
+func Run(state *state.State) {
+	w := Worker{
+		state:        state,
+		shutdown:     make(chan struct{}),
+		startMining:  make(chan bool, 1),
+		cancelMining: make(chan bool, 1),
+		txSharing:    make(chan database.BlockTX, maxTXSharingRequest),
+	}
+
+	//register worker to the state
+	state.Worker = &w
+
+	//sync the node with the rest of network
+	w.Sync()
+
+	//set of operation to do
+	operations := []func(){
+		w.ShareTxOperation,
+		w.PowOperation,
+	}
+
+	g := len(operations)
+	w.wg.Add(g)
+
+	//has started
+	hasStarted := make(chan bool)
+
+	for _, op := range operations {
+		go func() {
+			defer w.wg.Done()
+			hasStarted <- true
+			op()
+		}()
+	}
+
+	//wait till all operations are at least started
+	for range g {
+		<-hasStarted
+	}
 }
 
 // Shutdown implements state.Worker.
@@ -54,43 +101,12 @@ func (w *Worker) SignalStartMining() {
 	log.Println("mining signaled")
 }
 
-// Run creates a worker and attach the worker to the state.
-func Run(state *state.State) {
-	w := Worker{
-		state:        state,
-		shutdown:     make(chan struct{}),
-		startMining:  make(chan bool, 1),
-		cancelMining: make(chan bool, 1),
-	}
-
-	//register worker to the state
-	state.Worker = &w
-
-	//sync the node with the rest of network
-	w.Sync()
-
-	//set of operation to do
-	operations := []func(){
-		w.PowOperation,
-	}
-
-	g := len(operations)
-	w.wg.Add(g)
-
-	//has started
-	hasStarted := make(chan bool)
-
-	for _, op := range operations {
-		go func() {
-			defer w.wg.Done()
-			hasStarted <- true
-			op()
-		}()
-	}
-
-	//wait till all operations are at least started
-	for range g {
-		<-hasStarted
+// SignalShareTX signals a share tx operation between nodes.
+func (w *Worker) SignalShareTX(tx database.BlockTX) {
+	select {
+	case w.txSharing <- tx:
+		log.Println("signalShareTX: signal sent")
+	default:
 	}
 }
 
@@ -265,4 +281,21 @@ func (w *Worker) addNewPeers(knownPeers []peer.Peer) error {
 	}
 
 	return nil
+}
+
+func (w *Worker) ShareTxOperation() {
+	log.Println("shareTxOperation: goroutine started")
+	defer log.Println("shareTxOperation: goroutine finished")
+
+	for {
+		select {
+		case tx := <-w.txSharing:
+			if !w.isShuttingDown() {
+				w.state.SendTxToPeers(tx)
+			}
+		case <-w.shutdown:
+			log.Println("shareTxOperation: received shutdown signal")
+			return
+		}
+	}
 }

@@ -44,6 +44,7 @@ func PrivateMux(conf MuxConfig) http.Handler {
 	mux.HandleFunc("GET /node/tx/list", prv.Mempool)
 	mux.HandleFunc("GET /node/block/list/{from}/{to}", prv.BlocksByNumber)
 	mux.HandleFunc("POST /node/peers", prv.SubmitPeer)
+	mux.HandleFunc("POST /node/tx/submit", prv.SubmitTransaction)
 
 	return mux
 }
