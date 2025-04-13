@@ -423,6 +423,18 @@ func (db *Database) Write(block Block) error {
 	return db.storage.Write(NewBlockData(block))
 }
 
+func (db *Database) GetBlock(num uint64) (Block, error) {
+	blockData, err := db.storage.GetBlock(num)
+	if err != nil {
+		return Block{}, fmt.Errorf("getBlock: %w", err)
+	}
+	blk, err := ToBlock(blockData)
+	if err != nil {
+		return Block{}, fmt.Errorf("toBlock: %w", err)
+	}
+	return blk, nil
+}
+
 //==============================================================================
 // Block (batch of transactions)
 

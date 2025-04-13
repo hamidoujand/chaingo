@@ -1,18 +1,26 @@
 package state
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"sync"
 
 	"github.com/hamidoujand/chaingo/database"
 	"github.com/hamidoujand/chaingo/genesis"
 	"github.com/hamidoujand/chaingo/mempool"
+	"github.com/hamidoujand/chaingo/peer"
 )
 
 var ErrNoTransaction = errors.New("no transaction inside mempool")
+
+// QueryLatest represents to query the latest block in the chain.
+const QueryLatest = ^uint64(0) >> 1
 
 type Config struct {
 	//AccountID that receives the mining rewards for the Node.
@@ -20,6 +28,8 @@ type Config struct {
 	Genesis       genesis.Genesis
 	Strategy      string
 	Storage       database.Storage
+	KnownPeers    *peer.PeerSet
+	Host          string
 }
 
 // Worker represents the behavior required to do mining, peer update, shareTx across network.
@@ -38,6 +48,8 @@ type State struct {
 	mempool       *mempool.Mempool
 	Worker        Worker
 	storage       database.Storage
+	knownPeers    *peer.PeerSet
+	host          string
 }
 
 func New(conf Config) (*State, error) {
@@ -57,6 +69,8 @@ func New(conf Config) (*State, error) {
 		db:            db,
 		mempool:       mempool,
 		storage:       conf.Storage,
+		knownPeers:    conf.KnownPeers,
+		host:          conf.Host,
 	}
 
 	return &s, nil
@@ -205,4 +219,176 @@ func (s *State) validateAndUpdateDB(block database.Block) error {
 // LatestBlock returns the latest block.
 func (s *State) LatestBlock() database.Block {
 	return s.db.LatestBlock()
+}
+
+// KnownExternalPeers returns a copy of node hosts on the network excluding
+// current node.
+func (s *State) KnownExternalPeers() []peer.Peer {
+	return s.knownPeers.Copy(s.host)
+}
+
+func (s *State) Host() string {
+	return s.host
+}
+
+func (s *State) AddKnownPeer(peer peer.Peer) bool {
+	return s.knownPeers.Add(peer)
+}
+
+func (s *State) RequestPeerStatus(p peer.Peer) (peer.PeerStatus, error) {
+	log.Println("state: requestPeerStatus: started")
+	defer log.Println("state: requestPeerStatus: completed")
+
+	url := fmt.Sprintf("http://%s/node/status", p.Host)
+
+	var peerStatus peer.PeerStatus
+	if err := send(http.MethodGet, url, nil, &peerStatus); err != nil {
+		return peer.PeerStatus{}, fmt.Errorf("send: %w", err)
+	}
+	log.Printf("state: RequestPeerStatus: HOST[%s]: latestBlockNumber[%d]: peersList: %v\n", p.Host, peerStatus.LatestBlockNumber, peerStatus.KnownPeers)
+	return peerStatus, nil
+}
+
+func (s *State) RequestMempool(p peer.Peer) ([]database.BlockTX, error) {
+	url := fmt.Sprintf("http://%s/node/tx/list", p.Host)
+
+	var pool []database.BlockTX
+	if err := send(http.MethodGet, url, nil, &pool); err != nil {
+		return nil, fmt.Errorf("send: %w", err)
+	}
+
+	return pool, nil
+}
+
+func (s *State) RequestPeerBlocks(p peer.Peer) error {
+	from := s.LatestBlock().Header.Number + 1 //from this block other nodes need to send blocks.
+
+	url := fmt.Sprintf("http://%s/node/block/list/%d/latest", p.Host, from)
+
+	var blocks []database.BlockData
+	if err := send(http.MethodGet, url, nil, &blocks); err != nil {
+		return fmt.Errorf("send: %w", err)
+	}
+
+	//convert into in memory block
+	for _, blk := range blocks {
+		block, err := database.ToBlock(blk)
+		if err != nil {
+			return fmt.Errorf("toBlock: %w", err)
+		}
+
+		//process the block
+		if err := s.ProcessProposedBlock(block); err != nil {
+			return fmt.Errorf("processProposedBlock: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (s *State) QueryBlocksByNumber(from, to uint64) []database.Block {
+	if from == QueryLatest {
+		from = s.db.LatestBlock().Header.Number
+		to = from
+	}
+
+	if to == QueryLatest {
+		to = s.db.LatestBlock().Header.Number
+	}
+
+	var result []database.Block
+	for i := from; i <= to; i++ {
+		block, err := s.db.GetBlock(i)
+		if err != nil {
+			log.Printf("getting block: %s", err)
+			return nil
+		}
+
+		result = append(result, block)
+	}
+
+	return result
+}
+
+func (s *State) SendNodeAvailableToPeers() {
+	p := peer.Peer{Host: s.Host()}
+
+	for _, peer := range s.KnownExternalPeers() {
+		url := fmt.Sprintf("http://%s/node/peers", peer.Host)
+		if err := send(http.MethodPost, url, p, nil); err != nil {
+			log.Printf("sendNodeAvailableToPeers: Error: %v", err)
+		}
+	}
+}
+
+func (s *State) ProcessProposedBlock(block database.Block) error {
+	//also when other nodes mined a new block and proposed it to this node
+	// we first validate and then cancel our POW
+	if err := s.validateAndUpdateDB(block); err != nil {
+		return fmt.Errorf("validateAndUpdateDB: %w", err)
+	}
+
+	s.Worker.SignalCancelMining()
+	return nil
+}
+
+// ==============================================================================
+func send(method string, url string, dataSend any, dataReceive any) error {
+	var req *http.Request
+
+	switch {
+	case dataSend != nil:
+		data, err := json.Marshal(dataSend)
+		if err != nil {
+			return fmt.Errorf("marshalling: %w", err)
+		}
+
+		req, err = http.NewRequest(method, url, bytes.NewReader(data))
+		if err != nil {
+			return fmt.Errorf("new request: %w", err)
+		}
+	default:
+		var err error
+		req, err = http.NewRequest(method, url, nil)
+		if err != nil {
+			return fmt.Errorf("new request: %w", err)
+		}
+	}
+
+	//TODO: configure a custom client
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("do: %w", err)
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNoContent {
+		return nil
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		//have an err
+		bs, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("readAll: %w", err)
+		}
+
+		var errResponse struct {
+			Error string `json:"error"`
+		}
+		if err := json.Unmarshal(bs, &errResponse); err != nil {
+			return fmt.Errorf("unmarshalErr: %w", err)
+		}
+
+		return errors.New(errResponse.Error)
+	}
+
+	if dataReceive != nil {
+		if err := json.NewDecoder(resp.Body).Decode(dataReceive); err != nil {
+			return fmt.Errorf("unmarshal: %w", err)
+		}
+	}
+
+	return nil
 }

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hamidoujand/chaingo/peer"
 	"github.com/hamidoujand/chaingo/state"
 )
 
@@ -64,6 +65,9 @@ func Run(state *state.State) {
 
 	//register worker to the state
 	state.Worker = &w
+
+	//sync the node with the rest of network
+	w.Sync()
 
 	//set of operation to do
 	operations := []func(){
@@ -207,4 +211,58 @@ func (w *Worker) runPOWOperation() {
 
 	}()
 	wg.Wait()
+}
+
+// Sync updates the peers list, mempool and blocks.
+func (w *Worker) Sync() {
+	log.Println("worker: sync: started")
+	defer log.Println("worker: sync: completed")
+
+	for _, peer := range w.state.KnownExternalPeers() {
+		//get the status of the peer
+		peerStatus, err := w.state.RequestPeerStatus(peer)
+		if err != nil {
+			log.Printf("worker: sync: requestPeerStatus: [%s]:%v\n", peer.Host, err)
+		}
+
+		//add new peers
+		w.addNewPeers(peerStatus.KnownPeers)
+
+		//ask for mempool of that peer
+		pool, err := w.state.RequestMempool(peer)
+		if err != nil {
+			log.Printf("worker: sync: requestMempool: [%s]:%v\n", peer.Host, err)
+		}
+
+		//update current node's mempool with those transactions
+		for _, tx := range pool {
+			log.Printf("worker: sync: mempool: %s: TX[%s]\n", peer.Host, tx.SignatureString()[:16])
+			w.state.UpsertMempool(tx)
+		}
+
+		//if peer has some blocks that we do not have, we ask for them
+		if peerStatus.LatestBlockNumber > w.state.LatestBlock().Header.Number {
+			log.Printf("worker: sync: retrieve peer's blocks: %s: latestBlockNumber: %d\n", peer.Host, peerStatus.LatestBlockNumber)
+			if err := w.state.RequestPeerBlocks(peer); err != nil {
+				log.Printf("worker: sync: retrieve peer's blocks: %s: ERROR: %v\n", peer.Host, err)
+			}
+		}
+	}
+
+	//tell the rest of network that this node is ready to participate
+	w.state.SendNodeAvailableToPeers()
+}
+
+func (w *Worker) addNewPeers(knownPeers []peer.Peer) error {
+	for _, peer := range knownPeers {
+		//skip the current node
+		if !peer.Match(w.state.Host()) {
+			continue
+		}
+		if w.state.AddKnownPeer(peer) {
+			log.Printf("worker: addNewPeers: add node[%s]\n", peer.Host)
+		}
+	}
+
+	return nil
 }

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/hamidoujand/chaingo/genesis"
 	"github.com/hamidoujand/chaingo/handlers"
 	"github.com/hamidoujand/chaingo/nameservice"
+	"github.com/hamidoujand/chaingo/peer"
 	"github.com/hamidoujand/chaingo/selector"
 	"github.com/hamidoujand/chaingo/state"
 	"github.com/hamidoujand/chaingo/storage/disk"
@@ -48,6 +50,11 @@ func run() error {
 		publicHost = "0.0.0.0:8000"
 	}
 
+	privateHost := os.Getenv("CHAINGO_PRIVATE_HOST")
+	if privateHost == "" {
+		privateHost = "0.0.0.0:9000"
+	}
+
 	keysFolder := os.Getenv("CHAINGO_KEYS_DIR")
 	if keysFolder == "" {
 		keysFolder = "block"
@@ -57,6 +64,14 @@ func run() error {
 	if storagePath == "" {
 		storagePath = "block/miner1"
 	}
+
+	originPeers := os.Getenv("CHAINGO_ORIGIN_PEER")
+	if originPeers == "" {
+		originPeers = "0.0.0.0:9000"
+	}
+
+	originPeersList := strings.Split(originPeers, ",")
+
 	//==========================================================================
 	// Storage
 	disk, err := disk.New(storagePath)
@@ -74,6 +89,11 @@ func run() error {
 		return fmt.Errorf("loadECDSA: %w", err)
 	}
 
+	peerSet := peer.NewPeerSet()
+	for _, host := range originPeersList {
+		peerSet.Add(peer.New(host))
+	}
+
 	genesis, err := genesis.Load()
 	if err != nil {
 		return fmt.Errorf("loading genesis: %w", err)
@@ -84,6 +104,8 @@ func run() error {
 		Genesis:       genesis,
 		Strategy:      strategy,
 		Storage:       disk,
+		KnownPeers:    peerSet,
+		Host:          privateHost,
 	})
 
 	if err != nil {
@@ -108,7 +130,7 @@ func run() error {
 	//==========================================================================
 	// Mux
 
-	mux := handlers.PublicMux(handlers.MuxConfig{
+	publicMux := handlers.PublicMux(handlers.MuxConfig{
 		State: state,
 		NS:    ns,
 	})
@@ -120,10 +142,11 @@ func run() error {
 	signal.Notify(shutdown, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
 	serverErrs := make(chan error, 1)
-
+	//===================
+	// Public Server
 	publicServer := &http.Server{
 		Addr:        publicHost,
-		Handler:     http.TimeoutHandler(mux, time.Second*30, "timed out"),
+		Handler:     http.TimeoutHandler(publicMux, time.Second*30, "timed out"),
 		ReadTimeout: time.Second * 10, //TODO: needs load testing.
 		IdleTimeout: time.Second * 60, //TODO: needs load testing.
 	}
@@ -131,7 +154,29 @@ func run() error {
 	go func() {
 		log.Printf("public server starting at: %s", publicHost)
 		if err := publicServer.ListenAndServe(); err != nil {
-			serverErrs <- fmt.Errorf("listenAndServe: %w", err)
+			serverErrs <- fmt.Errorf("listenAndServe public: %w", err)
+		}
+	}()
+
+	//===================
+	// Private Server
+
+	privateMux := handlers.PrivateMux(handlers.MuxConfig{
+		State: state,
+		NS:    ns,
+	})
+
+	privateServer := &http.Server{
+		Addr:        privateHost,
+		Handler:     http.TimeoutHandler(privateMux, time.Second*30, "timed out"),
+		ReadTimeout: time.Second * 10, //TODO: needs load testing.
+		IdleTimeout: time.Second * 60, //TODO: needs load testing.
+	}
+
+	go func() {
+		log.Printf("private server starting at: %s", privateHost)
+		if err := privateServer.ListenAndServe(); err != nil {
+			serverErrs <- fmt.Errorf("listenAndServer private: %w", err)
 		}
 	}()
 
@@ -143,9 +188,14 @@ func run() error {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
 		defer cancel()
 
+		if err := privateServer.Shutdown(ctx); err != nil {
+			_ = privateServer.Close()
+			return fmt.Errorf("private server shutdown: %w", err)
+		}
+
 		if err := publicServer.Shutdown(ctx); err != nil {
 			_ = publicServer.Close()
-			return fmt.Errorf("shutdown: %w", err)
+			return fmt.Errorf("public server shutdown: %w", err)
 		}
 	}
 

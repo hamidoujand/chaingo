@@ -4,6 +4,7 @@
 # Pavel:  0xdd6B972ffcc631a62CAE1BB9d80b7ff429c8ebA4
 # Cesar:  0xbEE6ACE826eC3DE1B6349888B9151B92522F7F76
 # Miner1: 0xFef311483Cc040e1A89fb9bb469eeB8A70935EF8
+# Miner2: 0xb8Ee4c7ac4ca3269fEc242780D7D960bd6272a61
 
 
 # curl 
@@ -22,6 +23,8 @@ generate-key:
 run: 
 	CHAINGO_BENEFICIARY=miner1 go run cmd/service/main.go
 
+run2:
+	CHAINGO_BENEFICIARY=miner2 CHAINGO_PUBLIC_HOST=0.0.0.0:8080 CHAINGO_PRIVATE_HOST=0.0.0.0:9090 CHAINGO_STORAGE_DIR=block/miner2 go run cmd/service/main.go
 
 # admin send -account=<name> -dir=<keys_dir> -url=<node> -nonce=<nonce> -from=<from_id> -to=<to_id> -value=<value> -tip=<tip> [-data=<hex_data>]
 load:
