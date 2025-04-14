@@ -26,6 +26,9 @@ run:
 run2:
 	CHAINGO_BENEFICIARY=miner2 CHAINGO_PUBLIC_HOST=0.0.0.0:8080 CHAINGO_PRIVATE_HOST=0.0.0.0:9090 CHAINGO_STORAGE_DIR=block/miner2 go run cmd/service/main.go
 
+run3:
+	CHAINGO_BENEFICIARY=miner3 CHAINGO_PUBLIC_HOST=0.0.0.0:8180 CHAINGO_PRIVATE_HOST=0.0.0.0:9190 CHAINGO_STORAGE_DIR=block/miner3 go run cmd/service/main.go
+
 # admin send -account=<name> -dir=<keys_dir> -url=<node> -nonce=<nonce> -from=<from_id> -to=<to_id> -value=<value> -tip=<tip> [-data=<hex_data>]
 load:
 	go run cmd/admin/main.go send -account=hamid -dir=block -nonce=1 -from=0xB7098929d914880eF9A18026F2290A9F23390D42 -to=0xbEE6ACE826eC3DE1B6349888B9151B92522F7F76 -value=100
