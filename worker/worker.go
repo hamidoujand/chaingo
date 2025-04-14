@@ -16,6 +16,9 @@ import (
 // maxTXSharing is max number of tx that can be batched and more than this will be dropped.
 const maxTXSharingRequest = 100 //TODO: requires load testing to find the correct buffer size.
 
+// the interval for synching with other peers and check their health.
+const syncingOperationInterval = time.Minute
+
 // Worker is the manager of all goroutines created by this package.
 type Worker struct {
 	state        *state.State
@@ -24,6 +27,7 @@ type Worker struct {
 	startMining  chan bool
 	cancelMining chan bool
 	txSharing    chan database.BlockTX
+	ticker       *time.Ticker
 }
 
 // Run creates a worker and attach the worker to the state.
@@ -34,6 +38,7 @@ func Run(state *state.State) {
 		startMining:  make(chan bool, 1),
 		cancelMining: make(chan bool, 1),
 		txSharing:    make(chan database.BlockTX, maxTXSharingRequest),
+		ticker:       time.NewTicker(syncingOperationInterval),
 	}
 
 	//register worker to the state
@@ -44,6 +49,7 @@ func Run(state *state.State) {
 
 	//set of operation to do
 	operations := []func(){
+		w.peerSyncOperation,
 		w.ShareTxOperation,
 		w.PowOperation,
 	}
@@ -300,4 +306,44 @@ func (w *Worker) ShareTxOperation() {
 			return
 		}
 	}
+}
+
+func (w *Worker) peerSyncOperation() {
+	log.Println("worker: peerSyncOperation: goroutine started")
+	defer log.Println("worker: peerSyncOperation: goroutine completed")
+
+	for {
+		select {
+		case <-w.ticker.C:
+			if !w.isShuttingDown() {
+				w.peerSyncing()
+			}
+		case <-w.shutdown:
+			log.Println("worker: peerSyncOperation: shutdown received")
+			return
+		}
+	}
+}
+
+// peerSyncing updates the peer list.
+func (w *Worker) peerSyncing() {
+	log.Println("worker: peerSyncing: started")
+	defer log.Println("worker: peerSyncing: completed")
+
+	for _, peer := range w.state.KnownExternalPeers() {
+		peerStatus, err := w.state.RequestPeerStatus(peer)
+		if err != nil {
+			log.Printf("worker: peerSyncing: requestPeerStatus: %s: ERROR: %s", peer.Host, err)
+
+			//remove it from list
+			w.state.RemoveKnownPeer(peer)
+			continue
+		}
+
+		//add the updated list of peers
+		w.addNewPeers(peerStatus.KnownPeers)
+	}
+
+	//share tha the current node is also available
+	w.state.SendNodeAvailableToPeers()
 }
