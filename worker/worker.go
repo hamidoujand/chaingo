@@ -4,7 +4,9 @@ package worker
 import (
 	"context"
 	"errors"
+	"hash/fnv"
 	"log"
+	"slices"
 	"sync"
 	"time"
 
@@ -16,8 +18,13 @@ import (
 // maxTXSharing is max number of tx that can be batched and more than this will be dropped.
 const maxTXSharingRequest = 100 //TODO: requires load testing to find the correct buffer size.
 
-// the interval for synching with other peers and check their health.
-const syncingOperationInterval = time.Minute
+// peerUpdateInterval represents the interval of finding new peer nodes
+// and updating the blockchain on disk with missing blocks.
+const peerUpdateInterval = time.Second * 10
+
+// cycleDuration sets the mining operation to happen every 12 seconds in poa
+const secondsPerCycle = 12
+const cycleDuration = secondsPerCycle * time.Second
 
 // Worker is the manager of all goroutines created by this package.
 type Worker struct {
@@ -31,27 +38,33 @@ type Worker struct {
 }
 
 // Run creates a worker and attach the worker to the state.
-func Run(state *state.State) {
+func Run(st *state.State) {
 	w := Worker{
-		state:        state,
+		state:        st,
 		shutdown:     make(chan struct{}),
 		startMining:  make(chan bool, 1),
 		cancelMining: make(chan bool, 1),
 		txSharing:    make(chan database.BlockTX, maxTXSharingRequest),
-		ticker:       time.NewTicker(syncingOperationInterval),
+		ticker:       time.NewTicker(peerUpdateInterval),
 	}
 
 	//register worker to the state
-	state.Worker = &w
+	st.Worker = &w
 
 	//sync the node with the rest of network
 	w.Sync()
+
+	consensusOperation := w.PowOperation
+
+	if st.Consensus() == state.ConsensusPOA {
+		consensusOperation = w.poaOperation
+	}
 
 	//set of operation to do
 	operations := []func(){
 		w.peerSyncOperation,
 		w.ShareTxOperation,
-		w.PowOperation,
+		consensusOperation,
 	}
 
 	g := len(operations)
@@ -134,6 +147,135 @@ func (w *Worker) PowOperation() {
 			return
 		}
 	}
+}
+
+func (w *Worker) poaOperation() {
+	log.Printf("worker: poaOperation: goroutine started")
+	defer log.Printf("worker: poaOperation: goroutine completed")
+
+	ticker := time.NewTicker(cycleDuration)
+
+	resetTicker(ticker, secondsPerCycle*time.Second)
+
+	for {
+		select {
+		case <-ticker.C:
+			if !w.isShuttingDown() {
+				w.runPOAOperation()
+			}
+		case <-w.shutdown:
+			log.Println("worker: poaOperation: shutdown received")
+			return
+		}
+
+		resetTicker(ticker, 0)
+	}
+
+}
+
+func (w *Worker) runPOAOperation() {
+	log.Println("worker:runPOAOperation: started")
+	defer log.Println("worker:runPOAOperation: completed")
+
+	//select the node to do the mining
+	peer := w.selection()
+	log.Printf("worker:runPOAOperation: %s selected to do the mining\n", peer)
+
+	//if the selected is not the current node, then wait
+	if peer != w.state.Host() {
+		return
+	}
+
+	//if its the current node the do the mining
+	length := w.state.MempoolLen()
+	if length == 0 {
+		log.Printf("worker:runPOAOperation: no transaction in mempool")
+		return
+	}
+
+	select {
+	case <-w.cancelMining:
+	default:
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	//cancellation goroutine
+	go func() {
+		defer func() {
+			cancel()
+			wg.Done()
+		}()
+
+		select {
+		case <-w.cancelMining:
+			log.Printf("worker:runPOAOperation: cancelGoroutine: cancelling mining")
+		case <-ctx.Done():
+		}
+	}()
+
+	//mining goroutine
+	go func() {
+		defer func() {
+			cancel()
+			wg.Done()
+		}()
+
+		t := time.Now()
+		block, err := w.state.MineNewBlock(ctx)
+		duration := time.Since(t)
+		log.Printf("worker:runPOAOperation: mining operation took %s\n", duration)
+
+		if err != nil {
+
+			switch {
+			case errors.Is(err, state.ErrNoTransaction):
+				log.Printf("worker: runMiningOperation: no transactions in mempool\n")
+			case ctx.Err() != nil:
+				log.Printf("worker: runMiningOperation: complete\n")
+			default:
+				log.Printf("worker: runMiningOperation: ERROR %s\n", err)
+			}
+			return
+
+		}
+
+		// The block is mined. Propose the new block to the network.
+		// Log the error, but that's it.
+		if err := w.state.SendBlockToPeers(block); err != nil {
+			log.Printf("worker: runMiningOperation: MINING: proposeBlockToPeers: WARNING %s\n", err)
+		}
+	}()
+
+	wg.Wait()
+}
+
+func (w *Worker) selection() string {
+	//includes this node as well
+	peers := w.state.KnownPeers()
+
+	//hosts
+	names := make([]string, len(peers))
+	for i, peer := range peers {
+		names[i] = peer.Host
+	}
+
+	//sort by host
+	slices.Sort(names)
+
+	//based on the latest block pick an index from register
+	// Based on the latest block, pick an index number from the registry.
+	h := fnv.New32a()
+	h.Write([]byte(w.state.LatestBlock().Hash()))
+	integerHash := h.Sum32()
+	i := integerHash % uint32(len(names))
+
+	// Return the name of the node selected.
+	return names[i]
 }
 
 // isShuttingDown is used to check if a shutdown signal has been signaled.
@@ -346,4 +488,11 @@ func (w *Worker) peerSyncing() {
 
 	//share tha the current node is also available
 	w.state.SendNodeAvailableToPeers()
+}
+
+// ==============================================================================
+func resetTicker(ticker *time.Ticker, waitOnSecond time.Duration) {
+	nextTick := time.Now().Add(cycleDuration).Round(waitOnSecond)
+	diff := time.Until(nextTick)
+	ticker.Reset(diff)
 }

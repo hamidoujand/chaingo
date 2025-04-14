@@ -22,6 +22,11 @@ var ErrNoTransaction = errors.New("no transaction inside mempool")
 // QueryLatest represents to query the latest block in the chain.
 const QueryLatest = ^uint64(0) >> 1
 
+const (
+	ConsensusPOA = "POA"
+	ConsensusPOW = "POW"
+)
+
 type Config struct {
 	//AccountID that receives the mining rewards for the Node.
 	BeneficiaryID database.AccountID
@@ -30,6 +35,7 @@ type Config struct {
 	Storage       database.Storage
 	KnownPeers    *peer.PeerSet
 	Host          string
+	Consensus     string
 }
 
 // Worker represents the behavior required to do mining, peer update, shareTx across network.
@@ -52,6 +58,7 @@ type State struct {
 	storage       database.Storage
 	knownPeers    *peer.PeerSet
 	host          string
+	consensus     string
 }
 
 func New(conf Config) (*State, error) {
@@ -73,6 +80,7 @@ func New(conf Config) (*State, error) {
 		storage:       conf.Storage,
 		knownPeers:    conf.KnownPeers,
 		host:          conf.Host,
+		consensus:     conf.Consensus,
 	}
 
 	return &s, nil
@@ -100,6 +108,10 @@ func (s *State) QueryAccount(accountID database.AccountID) (database.Account, er
 
 func (s *State) Genesis() genesis.Genesis {
 	return s.genesis
+}
+
+func (s *State) Consensus() string {
+	return s.consensus
 }
 
 func (s *State) UpsertWalletTransaction(signedTX database.SignedTX) error {
@@ -139,6 +151,9 @@ func (s *State) MineNewBlock(ctx context.Context) (database.Block, error) {
 	trans := s.mempool.PickBest(int(s.genesis.TransPerBlock))
 
 	difficulty := s.genesis.Difficulty
+	if s.consensus == ConsensusPOA {
+		difficulty = 1
+	}
 
 	block, err := database.POW(ctx, database.POWConf{
 		BeneficiaryID: s.beneficiaryID,
@@ -227,6 +242,12 @@ func (s *State) LatestBlock() database.Block {
 // current node.
 func (s *State) KnownExternalPeers() []peer.Peer {
 	return s.knownPeers.Copy(s.host)
+}
+
+// KnownPeers retrieves a copy of the full known peer list which includes
+// this node as well. Used by the PoA selection algorithm.
+func (s *State) KnownPeers() []peer.Peer {
+	return s.knownPeers.Copy("")
 }
 
 func (s *State) Host() string {

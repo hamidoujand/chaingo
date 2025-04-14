@@ -65,6 +65,11 @@ func run() error {
 		storagePath = "block/miner1"
 	}
 
+	consensus := os.Getenv("CHAINGO_CONSENSUS")
+	if consensus == "" {
+		consensus = state.ConsensusPOW
+	}
+
 	originPeers := os.Getenv("CHAINGO_ORIGIN_PEER")
 	if originPeers == "" {
 		originPeers = "0.0.0.0:9000"
@@ -106,6 +111,7 @@ func run() error {
 		Storage:       disk,
 		KnownPeers:    peerSet,
 		Host:          privateHost,
+		Consensus:     consensus,
 	})
 
 	if err != nil {
