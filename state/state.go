@@ -360,6 +360,21 @@ func (s *State) UpsertNodeTransaction(tx database.BlockTX) error {
 	return nil
 }
 
+func (s *State) SendBlockToPeers(block database.Block) error {
+	for _, peer := range s.KnownExternalPeers() {
+		url := fmt.Sprintf("http://%s/node/block/propose", peer.Host)
+
+		var result struct {
+			Status string `json:"status"`
+		}
+		if err := send(http.MethodPost, url, database.NewBlockData(block), &result); err != nil {
+			return fmt.Errorf("send: peer[%s]: %w", peer.Host, err)
+		}
+	}
+
+	return nil
+}
+
 // ==============================================================================
 func send(method string, url string, dataSend any, dataReceive any) error {
 	var req *http.Request

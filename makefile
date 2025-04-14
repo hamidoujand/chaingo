@@ -34,3 +34,7 @@ load:
 	go run cmd/admin/main.go send -account=john -dir=block -nonce=2 -from=0xdF25785c81cf53f334fd05541Aa16bE8162CA8a9 -to=0xdd6B972ffcc631a62CAE1BB9d80b7ff429c8ebA4 -value=200
 	go run cmd/admin/main.go send -account=hamid -dir=block -nonce=3 -from=0xB7098929d914880eF9A18026F2290A9F23390D42 -to=0xbEE6ACE826eC3DE1B6349888B9151B92522F7F76 -value=60
 	go run cmd/admin/main.go send -account=john -dir=block -nonce=3 -from=0xdF25785c81cf53f334fd05541Aa16bE8162CA8a9 -to=0xdd6B972ffcc631a62CAE1BB9d80b7ff429c8ebA4 -value=300
+
+load2:
+	go run cmd/admin/main.go send -account=john -dir=block -nonce=4 -from=0xdF25785c81cf53f334fd05541Aa16bE8162CA8a9 -to=0xbEE6ACE826eC3DE1B6349888B9151B92522F7F76 -value=75
+	go run cmd/admin/main.go send -account=hamid -dir=block -nonce=4 -from=0xB7098929d914880eF9A18026F2290A9F23390D42 -to=0xbEE6ACE826eC3DE1B6349888B9151B92522F7F76 -value=100

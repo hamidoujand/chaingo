@@ -91,6 +91,8 @@ func (h *Handlers) SubmitPeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	defer r.Body.Close()
+
 	if !h.State.AddKnownPeer(peer) {
 		log.Printf("adding new peer: %s\n", peer.Host)
 	}
@@ -105,6 +107,8 @@ func (h *Handlers) SubmitTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	defer r.Body.Close()
+
 	if err := h.State.UpsertNodeTransaction(tx); err != nil {
 		respond(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
@@ -117,6 +121,35 @@ func (h *Handlers) SubmitTransaction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respond(w, http.StatusOK, msg)
+}
+
+func (h *Handlers) SendProposeBlock(w http.ResponseWriter, r *http.Request) {
+	var blockData database.BlockData
+	if err := json.NewDecoder(r.Body).Decode(&blockData); err != nil {
+		respond(w, http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	defer r.Body.Close()
+
+	block, err := database.ToBlock(blockData)
+	if err != nil {
+		respond(w, http.StatusBadRequest, ErrorResponse{Error: fmt.Sprintf("unable to convert into block: %s", err)})
+		return
+	}
+
+	if err := h.State.ProcessProposedBlock(block); err != nil {
+		respond(w, http.StatusNotAcceptable, ErrorResponse{Error: "block is not acceptable"})
+		return
+	}
+
+	status := struct {
+		Status string `json:"status"`
+	}{
+		Status: "accepted",
+	}
+
+	respond(w, http.StatusOK, status)
 }
 
 // =============================================================================

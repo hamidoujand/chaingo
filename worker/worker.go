@@ -208,7 +208,7 @@ func (w *Worker) runPOWOperation() {
 		t := time.Now()
 		//passing down the ctx so we can cancel the mining if goroutine received
 		//cancellation signal.
-		_, err := w.state.MineNewBlock(ctx)
+		block, err := w.state.MineNewBlock(ctx)
 		duration := time.Since(t)
 
 		log.Printf("worker: runPOWOperation: mining G: mining took %s\n", duration)
@@ -223,8 +223,10 @@ func (w *Worker) runPOWOperation() {
 			}
 			return
 		}
-		//mined a block successfully
-
+		//mined a block successfully, share the block with the network
+		if err := w.state.SendBlockToPeers(block); err != nil {
+			log.Printf("runPOWOperation: sendBlockToPeers: ERROR: %v", err)
+		}
 	}()
 	wg.Wait()
 }
