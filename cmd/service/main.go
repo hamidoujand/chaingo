@@ -67,7 +67,7 @@ func run() error {
 
 	consensus := os.Getenv("CHAINGO_CONSENSUS")
 	if consensus == "" {
-		consensus = state.ConsensusPOA
+		consensus = state.ConsensusPOW
 	}
 
 	originPeers := os.Getenv("CHAINGO_ORIGIN_PEER")
