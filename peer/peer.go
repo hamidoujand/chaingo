@@ -59,7 +59,7 @@ func (ps *PeerSet) Copy(host string) []Peer {
 	ps.mu.RLock()
 	defer ps.mu.RUnlock()
 
-	peers := make([]Peer, 0, len(ps.set))
+	var peers []Peer
 	for peer := range ps.set {
 		if !peer.Match(host) {
 			peers = append(peers, peer)

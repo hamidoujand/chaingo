@@ -179,7 +179,7 @@ func (w *Worker) runPOAOperation() {
 
 	//select the node to do the mining
 	peer := w.selection()
-	log.Printf("worker:runPOAOperation: %s selected to do the mining\n", peer)
+	log.Printf("worker:runPOAOperation: node selected to do mining: [%s]\n", peer)
 
 	//if the selected is not the current node, then wait
 	if peer != w.state.Host() {
@@ -420,11 +420,15 @@ func (w *Worker) Sync() {
 }
 
 func (w *Worker) addNewPeers(knownPeers []peer.Peer) error {
+	log.Println("worker: runPeerUpdatesOperation: addNewPeers: started")
+	defer log.Println("worker: runPeerUpdatesOperation: addNewPeers: completed")
+
 	for _, peer := range knownPeers {
 		//skip the current node
-		if !peer.Match(w.state.Host()) {
+		if peer.Match(w.state.Host()) {
 			continue
 		}
+
 		if w.state.AddKnownPeer(peer) {
 			log.Printf("worker: addNewPeers: add node[%s]\n", peer.Host)
 		}

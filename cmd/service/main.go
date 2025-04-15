@@ -67,7 +67,7 @@ func run() error {
 
 	consensus := os.Getenv("CHAINGO_CONSENSUS")
 	if consensus == "" {
-		consensus = state.ConsensusPOW
+		consensus = state.ConsensusPOA
 	}
 
 	originPeers := os.Getenv("CHAINGO_ORIGIN_PEER")
@@ -98,6 +98,8 @@ func run() error {
 	for _, host := range originPeersList {
 		peerSet.Add(peer.New(host))
 	}
+
+	peerSet.Add(peer.New(privateHost))
 
 	genesis, err := genesis.Load()
 	if err != nil {
