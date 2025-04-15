@@ -150,7 +150,7 @@ func handleSendTransaction() error {
 	value := sendCommand.Uint64("value", 0, "value to send.")
 	tip := sendCommand.Uint64("tip", 0, "tip to send.")
 	keysDir := sendCommand.String("dir", "block", "dir where private keys are stored.")
-	account := sendCommand.String("account", "hamid", "who's private key to use to sign tx.")
+	account := sendCommand.String("account", "", "who's private key to use to sign tx.")
 
 	var data byteSliceFlag
 	sendCommand.Var(&data, "data", "data to send")
