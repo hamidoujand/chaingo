@@ -1,6 +1,6 @@
 # Chaingo Blockchain
 
-![Go Version](https://img.shields.io/badge/go-%3E%3D1.18-blue)
+![Go Version](https://img.shields.io/badge/go-%3E%3D1.24-blue)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 Chaingo is a modular blockchain implementation in Go featuring dual consensus mechanisms (PoW/PoA), peer synchronization, and cryptographic transaction handling.
